@@ -63,6 +63,7 @@ class Ticket(BaseModel):
 
     deadline = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    deadline_task_id = models.CharField(max_length=255, null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]

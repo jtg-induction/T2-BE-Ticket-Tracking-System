@@ -1,7 +1,7 @@
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
-from rest_framework.pagination import PageNumberPagination
+from rest_framework.pagination import CursorPagination
 from rest_framework.response import Response
 
 from core.renders import StandardizedJSONRenderer
@@ -15,10 +15,11 @@ from .permissions import CommentPermission
 from .serializers import CommentSerializer
 
 
-class StandardResultsSetPagination(PageNumberPagination):
+class CommentCursorPagination(CursorPagination):
     page_size = 10
     page_size_query_param = "page_size"
     max_page_size = 100
+    ordering = "-created_at"
 
 
 class CommentViewSet(viewsets.ModelViewSet):
@@ -31,7 +32,7 @@ class CommentViewSet(viewsets.ModelViewSet):
 
     serializer_class = CommentSerializer
     permission_classes = [CommentPermission]
-    pagination_class = StandardResultsSetPagination
+    pagination_class = CommentCursorPagination
     renderer_classes = [StandardizedJSONRenderer]
 
     def get_queryset(self):
