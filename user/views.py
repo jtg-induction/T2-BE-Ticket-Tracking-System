@@ -39,12 +39,40 @@ class UserViewSet(
     lookup_field = "user_id"
     pagination_class = PageNumberPagination
 
+    def get_object(self):
+        """
+        Returns the object the view is displaying.
+
+        If 'user_id' is not provided in the URL, it defaults to returning
+        the currently authenticated user.
+
+        Returns:
+            CustomUser: The user instance retrieved via lookup_field or current session.
+        """
+        if "user_id" not in self.kwargs:
+            return self.request.user
+        return super().get_object()
+
+    def get_serializer_context(self):
+        """
+        Extra context provided to the serializer class.
+
+        Returns:
+            dict: updated context
+        """
+        context = super().get_serializer_context()
+        context.update({"request": self.request})
+        return context
+
     def get_permissions(self):
         """
         Returns the list of permissions that this view requires.
         """
         if self.action == "create":
             return [permissions.AllowAny()]
+
+        if self.action == "list":
+            return [permissions.IsAdminUser()]
 
         return [permissions.IsAuthenticated()]
 

@@ -20,7 +20,7 @@ class AuthFlowTests(APITestCase):
         Initialize test URLs and settings.
         """
         self.request_link_url = reverse("request-signup-link")
-        self.signup_url = reverse("user-profile-list")
+        self.signup_url = reverse("user-me")
         self.login_url = reverse("token_obtain_pair")
         self.refresh_url = reverse("token_refresh")
         self.cookie_name = settings.SIMPLE_JWT.get("AUTH_COOKIE", "refresh_token")

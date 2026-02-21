@@ -15,8 +15,10 @@ class UserSerializer(serializers.ModelSerializer):
     and handles the logic for token-based registration via `verify_signup_jwt`.
     """
 
+    can_edit = serializers.SerializerMethodField()
     password = serializers.CharField(write_only=True, required=True)
     token = serializers.CharField(write_only=True, required=False)
+    email = serializers.EmailField(required=False)
 
     class Meta:
         model = CustomUser
@@ -33,12 +35,29 @@ class UserSerializer(serializers.ModelSerializer):
             "dob",
             "password",
             "created_at",
+            "can_edit",
         ]
-        read_only_fields = ["user_id", "created_at", "email"]
+        read_only_fields = ["user_id", "created_at"]
 
         extra_kwargs = {
             "jira_api_token": {"write_only": True},
         }
+
+    def get_can_edit(self, obj):
+        """
+        calculates weather current user have permission over the user instance
+
+        Args:
+            obj (CustomUser): The user instance being serialized.
+
+        Returns:
+            bool: True if the requester is the owner of the account, False otherwise.
+
+        """
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            return obj.user_id == request.user.user_id
+        return False
 
     def validate(self, attrs):
         """
@@ -79,6 +98,16 @@ class UserSerializer(serializers.ModelSerializer):
         else:
             attrs.pop("token", None)
 
+            if "email" in attrs:
+                raise serializers.ValidationError(
+                    {"email": "This field cannot be modified."}
+                )
+
+            if "jira_id" in attrs:
+                raise serializers.ValidationError(
+                    {"jira_id": "This field cannot be modified."}
+                )
+
         return attrs
 
     def create(self, validated_data):
@@ -105,6 +134,7 @@ class UserSerializer(serializers.ModelSerializer):
             CustomUser: The updated user instance.
         """
         password = validated_data.pop("password", None)
+        validated_data.pop("jira_id", None)
         if password:
             instance.set_password(password)
 
