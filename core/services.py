@@ -36,6 +36,7 @@ class JiraProjectService:
         Returns:
             str: The numeric ID of the requested role.
         """
+
         response = client.get(f"/rest/api/3/project/{project_id}/role")
 
         if response.status_code != 200:
@@ -146,6 +147,7 @@ class JiraProjectService:
             bool: True if the user was successfully added to the Jira role.
 
         """
+
         client = cls._get_client(user, project.site_url)
 
         target_role_name = "Administrator" if is_admin else "Member"
@@ -153,6 +155,7 @@ class JiraProjectService:
         role_id = cls._get_role_id_by_name(client, project.jira_id, target_role_name)
 
         endpoint = f"/rest/api/3/project/{project.jira_id}/role/{role_id}"
+
         payload = {"user": [invitee.jira_id]}
 
         response = client.post(endpoint, payload)
@@ -160,4 +163,72 @@ class JiraProjectService:
         if response.status_code not in [200, 201]:
             raise serializers.ValidationError(f"{response.text}")
 
+        return True
+
+    @classmethod
+    def update_user_role_in_jira(cls, user, project, target_user, new_role):
+        """
+        Updates a user's role within a Jira project by cycling their permissions.
+
+        Args:
+            user (User): The requester performing the update.
+            project (ProjectModel): The local project instance containing Jira data.
+            target_user (User): The user whose permissions are being changed.
+            new_role (str): The desired role.
+
+        Returns:
+            bool: True if the user was successfully added to the new role.
+        """
+        client = cls._get_client(user, project.site_url)
+
+        admin_role_id = cls._get_role_id_by_name(
+            client, project.jira_id, "Administrator"
+        )
+        member_role_id = cls._get_role_id_by_name(client, project.jira_id, "Member")
+
+        for role_id in [admin_role_id, member_role_id]:
+            endpoint = f"/rest/api/3/project/{project.jira_id}/role/{role_id}"
+            params = {"user": target_user.jira_id}
+            response = client.delete(endpoint, params=params)
+
+            if response.status_code not in [200, 204, 404]:
+                raise serializers.ValidationError(
+                    f"Jira Role Clear Failed: {response.text}"
+                )
+
+        is_admin = new_role in ["admin", "owner"]
+        return JiraProjectService.add_user_to_jira_project(
+            user, project, target_user, is_admin
+        )
+
+    @classmethod
+    def remove_user_from_jira_project(cls, user, project, target_user):
+        """
+        Removes a user from all recognized roles in a Jira project.
+
+        Args:
+            user (User): The requester performing the removal.
+            project (ProjectModel): The project from which the user is being removed.
+            target_user (User): The user being removed.
+
+        Returns:
+            bool: True if all removal requests were successful or the user
+                  already had no roles.
+        """
+        client = cls._get_client(user, project.site_url)
+
+        admin_role_id = cls._get_role_id_by_name(
+            client, project.jira_id, "Administrator"
+        )
+        member_role_id = cls._get_role_id_by_name(client, project.jira_id, "Member")
+
+        for role_id in [admin_role_id, member_role_id]:
+            endpoint = f"/rest/api/3/project/{project.jira_id}/role/{role_id}"
+            params = {"user": target_user.jira_id}
+            response = client.delete(endpoint, params=params)
+
+            if response.status_code not in [200, 204, 404]:
+                raise serializers.ValidationError(
+                    f"Jira Removal Failed: {response.text}"
+                )
         return True

@@ -251,3 +251,41 @@ class InviteUserSerializer(serializers.Serializer):
                 ) from err
 
         return invitation
+
+
+class ProjectMemberSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the ProjectMember model.
+    """
+
+    first_name = serializers.CharField(source="user.first_name", read_only=True)
+    last_name = serializers.CharField(source="user.last_name", read_only=True)
+    email = serializers.EmailField(source="user.email", read_only=True)
+    full_name = serializers.CharField(source="user.get_full_name", read_only=True)
+    projectRole = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProjectMember
+        fields = [
+            "first_name",
+            "last_name",
+            "user_id",
+            "email",
+            "full_name",
+            "projectRole",
+            "is_admin",
+            "created_at",
+        ]
+
+    def get_projectRole(self, obj):
+        """
+        Determines the member's role priority.
+
+        Returns:
+            str: 'owner' if the user matches the project owner ID,
+                 'admin' if the is_admin flag is True,
+                 otherwise 'member'.
+        """
+        if obj.project.owner_id == obj.user_id:
+            return "owner"
+        return "admin" if obj.is_admin else "member"
