@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import serializers
 
+from comment.tasks import sync_comments_in_batches
 from core.services import JiraProjectService
 from core.utils import parse_jira_error
 from project.enums import MemberStatus
@@ -317,4 +318,7 @@ class JiraImportSerializer(serializers.Serializer):
                 "reporter": reporter,
             },
         )
+
+        sync_comments_in_batches.delay(ticket.id, user.user_id, project.id)
+
         return ticket, created
