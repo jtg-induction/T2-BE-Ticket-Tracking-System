@@ -1,7 +1,11 @@
+import secrets
 import uuid
 
 from django.conf import settings
 from django.db import models, transaction
+from django.db.models import Q, UniqueConstraint
+from django.db.models.functions import Now
+from django.utils import timezone
 
 from core.models import BaseModel, SoftDeleteManager
 
@@ -88,3 +92,65 @@ class ProjectModel(BaseModel):
 
     def __str__(self):
         return f"{self.jira_project_key} - {self.title}"
+
+
+class ProjectInvitation(BaseModel):
+    """
+    Model representing a pending request for a user to join a project.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        "ProjectModel", on_delete=models.CASCADE, related_name="invitations"
+    )
+    invitee = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="received_invitations",
+    )
+    is_admin = models.BooleanField(default=False)
+    token = models.CharField(max_length=64, unique=True)
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="sent_invitations",
+    )
+    expires_at = models.DateTimeField()
+    is_accepted = models.BooleanField(default=False)
+
+    def save(self, *args, **kwargs):
+        """
+        Overrides the save method to initialize default invitation metadata.
+
+        - Generates a cryptographically secure URL-safe token if not provided.
+        - Sets a default expiration date of 7 days from the creation time.
+        """
+        if not self.token:
+            self.token = secrets.token_urlsafe(32)
+        if not self.expires_at:
+            self.expires_at = timezone.now() + timezone.timedelta(days=7)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_valid(self):
+        """
+        Checks if the invitation is currently valid.
+
+        Returns:
+            bool: True if the invitation has not been accepted and is not past
+                  its expiration date.
+        """
+        return not self.is_accepted and self.expires_at > timezone.now()
+
+    class Meta:
+        """
+        No new invitation is sent until the previous one expires
+        """
+
+        constraints = [
+            UniqueConstraint(
+                fields=["project", "invitee"],
+                condition=Q(is_accepted=False) & Q(expires_at__gt=Now()),
+                name="unique_active_invite_per_project_invitee",
+            )
+        ]

@@ -129,3 +129,37 @@ class JiraProjectService:
                     raise serializers.ValidationError(
                         f"Jira {action} Failed: {archive_res.text}"
                     )
+
+    @classmethod
+    def add_user_to_jira_project(cls, user, project, invitee, is_admin):
+        """
+        Synchronizes a project membership with Jira Cloud by assigning the
+        invitee to a specific project role.
+
+        Args:
+            user (CustomUser): The user performing the action.
+            project (ProjectModel): The project instance being modified.
+            invitee (CustomUser): The user being added to the project.
+            is_admin (bool): Flag determining the level of access to grant in Jira.
+
+        Returns:
+            bool: True if the user was successfully added to the Jira role.
+
+        """
+        client = cls._get_client(user, project.site_url)
+
+        target_role_name = "Administrator" if is_admin else "Member"
+
+        role_id = cls._get_role_id_by_name(client, project.jira_id, target_role_name)
+
+        endpoint = f"/rest/api/3/project/{project.jira_id}/role/{role_id}"
+        payload = {"user": [invitee.jira_id]}
+
+        response = client.post(endpoint, payload)
+
+        if response.status_code not in [200, 201]:
+            raise serializers.ValidationError(
+                f"Failed to add user to Jira: {response.text}"
+            )
+
+        return True

@@ -1,13 +1,18 @@
 import re
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import serializers
 
 from core.services import JiraProjectService
+from project.models import ProjectMember
+from user.models import CustomUser
 
 from .enums import MemberStatus
-from .models import ProjectMember, ProjectModel
+from .models import ProjectInvitation, ProjectMember, ProjectModel
+from .tasks import send_invitation_email
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -149,3 +154,91 @@ class ProjectSerializer(serializers.ModelSerializer):
             instance = super().update(instance, validated_data)
             JiraProjectService.update_jira_project(user, instance, validated_data)
             return instance
+
+
+class InviteUserSerializer(serializers.Serializer):
+    """
+    Serializer to handle inviting a new user to a project.
+
+    """
+
+    email = serializers.EmailField()
+    is_admin = serializers.BooleanField(default=False)
+
+    def validate(self, attrs):
+        """
+        Performs multi-layered validation for the invitation request.
+
+        1. Verifies the invitee is a registered system user.
+        2. Ensures the user isn't already a member of the project.
+        3. Checks for existing active (unexpired and unaccepted) invitations
+           to prevent spamming.
+
+        Args:
+            attrs (dict): Data provided by the requester.
+
+        Returns:
+            dict: Validated data with the 'invitee' object injected.
+        """
+        project_id = self.context.get("project_id")
+        email = attrs.get("email")
+
+        try:
+            invitee = CustomUser.objects.get(email=email)
+            attrs["invitee"] = invitee
+        except CustomUser.DoesNotExist:
+            raise serializers.ValidationError(
+                {"email": "User with this email does not exist."}
+            )
+
+        if ProjectMember.objects.filter(project_id=project_id, user=invitee).exists():
+            raise serializers.ValidationError(
+                "User is already a member of this project."
+            )
+
+        if ProjectInvitation.objects.filter(
+            project_id=project_id,
+            invitee=invitee,
+            is_accepted=False,
+            expires_at__gt=timezone.now(),
+        ).exists():
+            raise serializers.ValidationError(
+                "An active invitation already exists for this user."
+            )
+
+        return attrs
+
+    def create(self, validated_data):
+        """
+        Creates a ProjectInvitation record and dispatches an invitation email.
+
+        Args:
+            validated_data (dict): Data returned from the validation step.
+
+        Returns:
+            ProjectInvitation: The newly created invitation instance.
+        """
+        project_id = self.context.get("project_id")
+        inviter = self.context.get("request").user
+        invitee = validated_data["invitee"]
+
+        with transaction.atomic():
+            invitation = ProjectInvitation.objects.create(
+                project_id=project_id,
+                invitee=invitee,
+                invited_by=inviter,
+                is_admin=validated_data["is_admin"],
+            )
+
+            invite_url = f"{settings.CLIENT_URL}/accept-invite/{invitation.token}"
+
+            try:
+                send_invitation_email.delay(
+                    invitee.email, invitation.project.title, invite_url
+                )
+            except Exception as err:
+                raise serializers.ValidationError(
+                    {"email": "Unable to send invitation right now. Please retry."}
+                ) from err
+
+        return invitation
