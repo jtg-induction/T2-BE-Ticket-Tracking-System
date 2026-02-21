@@ -232,3 +232,242 @@ class JiraProjectService:
                     f"Jira Removal Failed: {response.text}"
                 )
         return True
+
+    @classmethod
+    def create_jira_task(
+        cls,
+        user,
+        project_instance,
+        summary,
+        description,
+        reporter_id,
+        category,
+        priority="Medium",
+        due_date=None,
+    ):
+        """
+        Creates a new issue in Jira Cloud.
+
+        Args:
+            user (User): The local user performing the action (used for authentication).
+            project_instance (ProjectModel): The project where the task will be created.
+            summary (str): The title of the Jira issue.
+            description (str): Plain text description (converted to ADF paragraph).
+            reporter_id (str): The Jira Account ID of the reporter.
+            category (str): Local category used as a Jira label.
+            priority (str): Jira priority name (default: "Medium").
+            due_date (str|None): Optional ISO date string (YYYY-MM-DD).
+
+        Returns:
+            dict: The JSON response from Jira containing the new issue key and ID.
+
+        Raises:
+            serializers.ValidationError: If Jira returns a non-201 status code.
+        """
+        client = cls._get_client(user, project_instance.site_url)
+        description_adf = {
+            "version": 1,
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": description}],
+                }
+            ],
+        }
+        payload = {
+            "fields": {
+                "project": {"id": project_instance.jira_id},
+                "summary": summary,
+                "description": description_adf,
+                "issuetype": {"name": "Task"},
+                "reporter": {"id": reporter_id},
+                "priority": {"name": priority},
+                "labels": [category],
+            }
+        }
+
+        if due_date:
+            payload["fields"]["duedate"] = due_date
+
+        response = client.post("/rest/api/3/issue", payload)
+        if response.status_code == 201:
+            return response.json()
+        raise serializers.ValidationError(f"Jira Task Creation Failed: {response.text}")
+
+    @staticmethod
+    def _get_available_transitions(client, jira_id):
+        """
+        Retrieves the valid workflow transitions for a specific Jira issue.
+
+        In Jira, status changes are not direct edits; you must move an issue
+        through defined 'transitions' allowed by the project's workflow.
+
+        Args:
+            client (JiraClient): The authenticated Jira API client.
+            jira_id (str): The Jira issue key.
+
+        Returns:
+            list: A list of transition dictionaries containing IDs and 'to' names.
+        """
+        endpoint = f"/rest/api/3/issue/{jira_id}/transitions"
+        response = client.get(endpoint)
+        if response.status_code == 200:
+            return response.json().get("transitions", [])
+        return []
+
+    @classmethod
+    def update_jira_task(cls, user, ticket_instance, validated_data):
+        """
+        Synchronizes local ticket updates to the external Jira issue.
+
+        Handles two distinct Jira operations:
+        1. **Workflow Transitions**: If the status changes, it fetches available
+           transitions and executes the correct ID to move the issue.
+        2. **Field Updates**: Updates summary, description, priority, labels,
+           and assignee via a PUT request.
+
+        Args:
+            user (User): The local user performing the update.
+            ticket_instance (Ticket): The local ticket being modified.
+            validated_data (dict): Cleaned data from the serializer.
+
+        Returns:
+            bool: True if synchronization was successful.
+        """
+        client = cls._get_client(user, ticket_instance.project.site_url)
+        jira_id = ticket_instance.jira_id
+
+        new_status = validated_data.get("status")
+        if new_status and new_status != ticket_instance.status:
+            search_status = (
+                "done" if new_status.lower() == "closed" else new_status.lower()
+            )
+
+            transitions = cls._get_available_transitions(client, jira_id)
+
+            transition_id = next(
+                (
+                    t["id"]
+                    for t in transitions
+                    if t["to"]["name"].lower() == search_status
+                ),
+                None,
+            )
+
+            if transition_id:
+                transition_payload = {"transition": {"id": transition_id}}
+                trans_response = client.post(
+                    f"/rest/api/3/issue/{jira_id}/transitions", transition_payload
+                )
+
+                if trans_response.status_code not in [200, 204]:
+                    raise serializers.ValidationError(
+                        f"Jira Status Transition Failed: {trans_response.text}"
+                    )
+            else:
+                allowed_statuses = [t["to"]["name"] for t in transitions]
+                raise serializers.ValidationError(
+                    f"Jira status '{search_status}' is not a valid move from current state. "
+                    f"Available options: {', '.join(allowed_statuses)}"
+                )
+
+        fields = {}
+
+        if "deadline" in validated_data:
+            deadline = validated_data.get("deadline")
+            fields["duedate"] = deadline.strftime("%Y-%m-%d") if deadline else None
+
+        if "name" in validated_data:
+            fields["summary"] = validated_data["name"]
+
+        if "description" in validated_data:
+            fields["description"] = {
+                "version": 1,
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "text", "text": validated_data["description"]}
+                        ],
+                    }
+                ],
+            }
+
+        if "priority" in validated_data:
+            fields["priority"] = {"name": validated_data["priority"]}
+
+        if "category" in validated_data:
+            fields["labels"] = [validated_data["category"]]
+
+        if "assignee" in validated_data:
+            fields["assignee"] = {"id": validated_data["assignee"].jira_id}
+
+        if fields:
+            endpoint = f"/rest/api/3/issue/{jira_id}"
+            response = client.put(endpoint, {"fields": fields})
+
+            if response.status_code not in [200, 204]:
+                raise serializers.ValidationError(
+                    f"Jira Task Field Update Failed: {response.text}"
+                )
+
+        return True
+
+    @classmethod
+    def search_jira_tickets(
+        cls, user, project_instance, jql_query, maxResults, nextPageToken=None
+    ):
+        """
+        Performs a scoped JQL search against the Jira project.
+
+        Combines the user's search query with a project-level scope to ensure
+        results are limited to the relevant Jira project. Supports modern
+        token-based pagination.
+
+        Args:
+            user (User): The local user performing the search.
+            project_instance (ProjectModel): The project to scope the search to.
+            jql_query (str): The raw JQL string (e.g., 'text ~ "login"').
+            maxResults (int): Number of results to return per page.
+            nextPageToken (str|None): The token for the next page of results.
+
+        Returns:
+            dict: A dictionary containing 'issues' (list), 'next_page_token' (str),
+                  and 'total' (int).
+        """
+        client = cls._get_client(user, project_instance.site_url)
+
+        scoped_jql = (
+            f"project = '{project_instance.jira_project_key}' AND ({jql_query})"
+        )
+
+        payload = {
+            "jql": scoped_jql,
+            "fields": [
+                "summary",
+                "status",
+                "assignee",
+                "reporter",
+                "priority",
+                "description",
+                "labels",
+            ],
+            "maxResults": maxResults,
+            "nextPageToken": nextPageToken,
+        }
+
+        response = client.post("/rest/api/3/search/jql", payload)
+
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "issues": data.get("issues", []),
+                "next_page_token": data.get("nextPageToken"),
+                "total": data.get("total", 0),
+            }
+
+        raise serializers.ValidationError(
+            {"jql": f"Jira JQL Search Failed: {response.text}"}
+        )

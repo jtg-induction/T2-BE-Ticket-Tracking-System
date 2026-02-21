@@ -1,7 +1,7 @@
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, Value, When
 from django.shortcuts import get_object_or_404
-from rest_framework import status, viewsets
+from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -260,6 +260,8 @@ class ProjectMemberViewSet(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, IsProjectMember]
     pagination_class = StandardizedPagination
     renderer_classes = [StandardizedJSONRenderer]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["user__first_name", "user__last_name", "user__email"]
 
     def get_queryset(self):
         """
