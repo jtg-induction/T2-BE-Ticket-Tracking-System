@@ -10,6 +10,8 @@ psycopg2-binary = "*"
 django-environ = "*"
 djangorestframework-simplejwt = "*"
 pytest = "*"
+django-cors-headers = "*"
+pytest-django = "*"
 
 [dev-packages]
 pytest-cov = "*"

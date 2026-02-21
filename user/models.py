@@ -1,0 +1,87 @@
+import uuid
+
+from django.contrib.auth.models import (
+    AbstractBaseUser,
+    BaseUserManager,
+    PermissionsMixin,
+)
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+from django.db import models
+
+from .enums import Roles
+
+
+class UserManager(BaseUserManager):
+    """
+    Custom manager for handling user creation.
+    """
+
+    def create_user(self, email, password=None, **extra_fields):
+        """
+        Create regular user with given email and password.
+        """
+        if not email:
+            raise ValueError("Email is required")
+
+        try:
+            validate_email(email)
+        except ValidationError:
+            raise ValueError("You must have provided a valid email address")
+
+        if not password:
+            raise ValueError("Password is required")
+
+        email = self.normalize_email(email)
+        user = self.model(email=email, **extra_fields)
+        user.set_password(password)
+        user.save()
+        return user
+
+    def create_superuser(self, email, password=None, **extra_fields):
+        """
+        Create superuser with admin privileges.
+        """
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+
+        if extra_fields.get("is_staff") is not True:
+            raise ValueError("Superuser must have is_staff = True.")
+
+        if extra_fields.get("is_superuser") is not True:
+            raise ValueError("Superuser must have is_superuser = True")
+
+        return self.create_user(email, password, **extra_fields)
+
+
+class CustomUser(AbstractBaseUser, PermissionsMixin):
+    """
+    Custom user model.
+    """
+
+    user_id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    jira_id = models.TextField(unique=True, max_length=43)
+    email = models.EmailField(unique=True)
+    first_name = models.TextField(max_length=50)
+    last_name = models.TextField(max_length=50, null=True, blank=True)
+    about = models.TextField(max_length=500, null=True, blank=True)
+    role = models.TextField(
+        choices=Roles.choices,
+        max_length=3,
+        default=Roles.software_dev
+    )
+    dob = models.DateTimeField(null=True, blank=True)
+    is_staff = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    USERNAME_FIELD = "email"
+
+    objects = UserManager()
+
+    def __str__(self):
+        return self.email
