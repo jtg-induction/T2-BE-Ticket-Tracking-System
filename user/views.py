@@ -122,7 +122,7 @@ class RequestSignupLinkView(GenericAPIView):
             send_registration_email(email, signup_url)
         except Exception as e:
             return Response(
-                {"error": f"Failed to send email: {str(e)}"},
+                {"message": f"Failed to send email: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

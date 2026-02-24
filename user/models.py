@@ -9,20 +9,26 @@ from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import models
 
+from safedelete.models import SafeDeleteModel
+from safedelete.managers import SafeDeleteManager
+
 from .enums import Roles
 
 
-class UserManager(BaseUserManager):
+class UserManager(BaseUserManager, SafeDeleteManager):
     """
     Custom manager for handling user creation.
     """
 
-    def create_user(self, email, password=None, **extra_fields):
+    def create_user(self, email, jira_id, password=None, **extra_fields):
         """
         Create regular user with given email and password.
         """
         if not email:
             raise ValueError("Email is required")
+        
+        if not jira_id:
+            raise ValueError("JIRA ID is required")
 
         try:
             validate_email(email)
@@ -33,12 +39,12 @@ class UserManager(BaseUserManager):
             raise ValueError("Password is required")
 
         email = self.normalize_email(email)
-        user = self.model(email=email, **extra_fields)
+        user = self.model(email=email,jira_id=jira_id, **extra_fields)
         user.set_password(password)
         user.save()
         return user
 
-    def create_superuser(self, email, password=None, **extra_fields):
+    def create_superuser(self, email,jira_id, password=None, **extra_fields):
         """
         Create superuser with admin privileges.
         """
@@ -51,10 +57,10 @@ class UserManager(BaseUserManager):
         if extra_fields.get("is_superuser") is not True:
             raise ValueError("Superuser must have is_superuser = True")
 
-        return self.create_user(email, password, **extra_fields)
+        return self.create_user(email, jira_id, password, **extra_fields)
 
 
-class CustomUser(AbstractBaseUser, PermissionsMixin):
+class CustomUser(AbstractBaseUser, PermissionsMixin, SafeDeleteModel):
     """
     Custom user model.
     """
@@ -80,6 +86,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     updated_at = models.DateTimeField(auto_now=True)
 
     USERNAME_FIELD = "email"
+    REQUIRED_FIELDS = ['jira_id', 'first_name']
 
     objects = UserManager()
 

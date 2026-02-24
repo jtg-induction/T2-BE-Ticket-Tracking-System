@@ -1,8 +1,26 @@
 from django.contrib import admin
-from django.contrib.auth import get_user_model
+from safedelete.admin import SafeDeleteAdmin
+from .models import CustomUser
 
-class UserAdmin(admin.ModelAdmin):
-    list_display = ("email","first_name","last_name","is_staff","is_active","is_superuser")
+@admin.register(CustomUser)
+class CustomUserAdmin(SafeDeleteAdmin):
+    list_display = (
+        'email', 
+        'first_name', 
+        'last_name', 
+        'role', 
+        'is_deleted_status',
+        'deleted'
+    )
+    
+    search_fields = ('email', 'first_name', 'last_name')
+    ordering = ('-created_at',)
 
-
-admin.site.register(get_user_model(),UserAdmin)
+    def is_deleted_status(self, obj):
+        """
+        Returns a boolean icon: True if deleted, False otherwise.
+        """
+        return obj.deleted is not None
+    
+    is_deleted_status.boolean = True
+    is_deleted_status.short_description = "Is Deleted?"

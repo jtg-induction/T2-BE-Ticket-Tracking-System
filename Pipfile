@@ -12,6 +12,7 @@ djangorestframework-simplejwt = "*"
 pytest = "*"
 django-cors-headers = "*"
 pytest-django = "*"
+django-safedelete = "*"
 
 [dev-packages]
 pytest-cov = "*"

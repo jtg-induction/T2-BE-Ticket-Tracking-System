@@ -47,6 +47,22 @@ class UserSerializer(serializers.ModelSerializer):
             attrs.pop('token', None)
 
         return attrs
+    
+    def validate_jira_id(self, value):
+        """
+        Check that the jira_id is unique.
+        """
+        # Create the base queryset
+        query = CustomUser.objects.filter(jira_id=value)
+
+        # If we are updating an existing user, exclude them from the check
+        if self.instance:
+            query = query.exclude(pk=self.instance.pk)
+
+        if query.exists():
+            raise serializers.ValidationError("A user with this Jira ID already exists.")
+        
+        return value
 
     def create(self, validated_data):
         return CustomUser.objects.create_user(**validated_data)
