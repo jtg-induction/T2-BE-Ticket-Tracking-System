@@ -26,6 +26,9 @@ class AuthFlowTests(APITestCase):
         """
         Helper to create a user instance.
         """
+        if 'jira_id' not in extra_fields:
+            extra_fields['jira_id'] = f"JIRA-{uuid.uuid4().hex[:8]}"
+
         return CustomUser.objects.create_user(
             email=email,
             password=password,
