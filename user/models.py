@@ -20,7 +20,7 @@ class UserManager(BaseUserManager, SafeDeleteManager):
     Custom manager for handling user creation.
     """
 
-    def create_user(self, email, jira_id, password=None, **extra_fields):
+    def create_user(self, email, jira_id, jira_api_token, password=None, **extra_fields):
         """
         Create regular user with given email and password.
         """
@@ -29,6 +29,9 @@ class UserManager(BaseUserManager, SafeDeleteManager):
         
         if not jira_id:
             raise ValueError("JIRA ID is required")
+        
+        if not jira_api_token:
+            raise ValueError("JIRA API Token is required")
 
         try:
             validate_email(email)
@@ -39,12 +42,12 @@ class UserManager(BaseUserManager, SafeDeleteManager):
             raise ValueError("Password is required")
 
         email = self.normalize_email(email)
-        user = self.model(email=email,jira_id=jira_id, **extra_fields)
+        user = self.model(email=email,jira_id=jira_id,jira_api_token=jira_api_token, **extra_fields)
         user.set_password(password)
         user.save()
         return user
 
-    def create_superuser(self, email,jira_id, password=None, **extra_fields):
+    def create_superuser(self, email,jira_id, jira_api_token, password=None, **extra_fields):
         """
         Create superuser with admin privileges.
         """
@@ -57,7 +60,7 @@ class UserManager(BaseUserManager, SafeDeleteManager):
         if extra_fields.get("is_superuser") is not True:
             raise ValueError("Superuser must have is_superuser = True")
 
-        return self.create_user(email, jira_id, password, **extra_fields)
+        return self.create_user(email, jira_id, jira_api_token, password, **extra_fields)
 
 
 class CustomUser(AbstractBaseUser, PermissionsMixin, SafeDeleteModel):
@@ -70,6 +73,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin, SafeDeleteModel):
         default=uuid.uuid4,
     )
     jira_id = models.TextField(unique=True, max_length=43)
+    jira_api_token= models.TextField(unique=True,max_length=256)
     email = models.EmailField(unique=True)
     first_name = models.TextField(max_length=50)
     last_name = models.TextField(max_length=50, null=True, blank=True)
@@ -86,7 +90,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin, SafeDeleteModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS = ['jira_id', 'first_name']
+    REQUIRED_FIELDS = ['jira_id', 'first_name', 'jira_api_token']
 
     objects = UserManager()
 

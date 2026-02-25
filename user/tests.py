@@ -28,6 +28,9 @@ class AuthFlowTests(APITestCase):
         """
         if 'jira_id' not in extra_fields:
             extra_fields['jira_id'] = f"JIRA-{uuid.uuid4().hex[:8]}"
+        
+        if 'jira_api_token' not in extra_fields:
+            extra_fields['jira_api_token'] = f"JIRA-{uuid.uuid4().hex[:8]}"
 
         return CustomUser.objects.create_user(
             email=email,
@@ -65,7 +68,8 @@ class AuthFlowTests(APITestCase):
             "password": "securepassword",
             "first_name": "Test",
             "last_name": "User",
-            "jira_id": "76341809"
+            "jira_id": "76341809",
+            "jira_api_token": "some_token"
         }
         response = self.client.post(self.signup_url, data)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -80,7 +84,8 @@ class AuthFlowTests(APITestCase):
             "password": "password123",
             "first_name": "Test",
             "last_name": "User",
-            "jira_id": "76341809"
+            "jira_id": "76341809",
+            "jira_api_token": "some_token"
         }
         response = self.client.post(self.signup_url, data)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

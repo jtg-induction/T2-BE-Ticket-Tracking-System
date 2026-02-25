@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework import exceptions, serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
@@ -16,8 +17,8 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = [
-            'user_id', 'email', 'token', 'jira_id', 'first_name',
-            'last_name', 'about', 'role', 'dob',
+            'user_id', 'email', 'token', 'jira_id', 'jira_api_token', 
+            'first_name', 'last_name', 'about', 'role', 'dob',
             'password', 'created_at'
         ]
         read_only_fields = ['user_id', 'created_at', 'email']
@@ -45,24 +46,8 @@ class UserSerializer(serializers.ModelSerializer):
                 raise exceptions.ValidationError({"token": str(e)})
         else:
             attrs.pop('token', None)
-
+            
         return attrs
-    
-    def validate_jira_id(self, value):
-        """
-        Check that the jira_id is unique.
-        """
-        # Create the base queryset
-        query = CustomUser.objects.filter(jira_id=value)
-
-        # If we are updating an existing user, exclude them from the check
-        if self.instance:
-            query = query.exclude(pk=self.instance.pk)
-
-        if query.exists():
-            raise serializers.ValidationError("A user with this Jira ID already exists.")
-        
-        return value
 
     def create(self, validated_data):
         return CustomUser.objects.create_user(**validated_data)
