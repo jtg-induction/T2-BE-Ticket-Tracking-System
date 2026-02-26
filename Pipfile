@@ -11,11 +11,11 @@ django-environ = "*"
 djangorestframework-simplejwt = "*"
 pytest = "*"
 django-cors-headers = "*"
-pytest-django = "*"
 django-safedelete = "*"
 
 [dev-packages]
 pytest-cov = "*"
+pytest-django = "*"
 
 [requires]
 python_version = "3.9"

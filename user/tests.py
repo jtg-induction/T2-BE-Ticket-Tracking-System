@@ -6,6 +6,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from user.models import CustomUser
 from user.utils import generate_signup_jwt
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
 
 class AuthFlowTests(APITestCase):
     """
@@ -26,6 +27,9 @@ class AuthFlowTests(APITestCase):
         """
         Helper to create a user instance.
         """
+        if 'first_name' not in extra_fields:
+            extra_fields['first_name'] = f"TestUser_{uuid.uuid4().hex[:4]}"
+        
         if 'jira_id' not in extra_fields:
             extra_fields['jira_id'] = f"JIRA-{uuid.uuid4().hex[:8]}"
         
@@ -125,3 +129,25 @@ class AuthFlowTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("access", response.data)
         self.assertIn(self.cookie_name, response.cookies)
+        
+    def test_logout_blacklists_token_and_clears_cookie(self):
+
+        email = "logout_test@example.com"
+        password = "password123"
+        self.create_user(email=email, password=password)
+        
+        login_res = self.client.post(self.login_url, {"email": email, "password": password})
+        refresh_token = login_res.cookies.get(self.cookie_name).value
+
+        logout_url = reverse('logout')
+        response = self.client.post(logout_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.cookies.get(self.cookie_name).value, "")
+        self.assertTrue(
+            BlacklistedToken.objects.filter(token__token=refresh_token).exists()
+        )
+
+        refresh_response = self.client.post(self.refresh_url)
+        self.assertEqual(refresh_response.status_code, status.HTTP_400_BAD_REQUEST)
+

@@ -13,6 +13,7 @@ from safedelete.models import SafeDeleteModel
 from safedelete.managers import SafeDeleteManager
 
 from .enums import Roles
+from .utils import encrypt_token, decrypt_token
 
 
 class UserManager(BaseUserManager, SafeDeleteManager):
@@ -30,6 +31,9 @@ class UserManager(BaseUserManager, SafeDeleteManager):
         if not jira_id:
             raise ValueError("JIRA ID is required")
         
+        if not extra_fields.get('first_name'):
+            raise ValueError("The First Name field must be set")
+        
         if not jira_api_token:
             raise ValueError("JIRA API Token is required")
 
@@ -42,7 +46,13 @@ class UserManager(BaseUserManager, SafeDeleteManager):
             raise ValueError("Password is required")
 
         email = self.normalize_email(email)
-        user = self.model(email=email,jira_id=jira_id,jira_api_token=jira_api_token, **extra_fields)
+        user = self.model(
+            email=email,
+            jira_id=jira_id,
+            # Encrypt right here at the manager level
+            jira_api_token=encrypt_token(jira_api_token), 
+            **extra_fields
+        )
         user.set_password(password)
         user.save()
         return user
@@ -94,5 +104,15 @@ class CustomUser(AbstractBaseUser, PermissionsMixin, SafeDeleteModel):
 
     objects = UserManager()
 
+    def get_decrypted_jira_token(self):
+        """
+        Helper to retrieve the usable plaintext token.
+        """
+        return decrypt_token(self.jira_api_token)
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        
+        
     def __str__(self):
         return self.email

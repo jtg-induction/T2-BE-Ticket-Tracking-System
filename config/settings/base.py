@@ -3,7 +3,6 @@ import os
 from pathlib import Path
 
 import environ
-from datetime import timedelta
 
 env = environ.Env()
 
@@ -25,6 +24,7 @@ DJANGO_APPS = [
 THIRD_PARTY_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
 ]
 
@@ -122,7 +122,7 @@ SIMPLE_JWT = {
     
     'AUTH_COOKIE': 'refresh_token',
     'AUTH_COOKIE_HTTP_ONLY': True,
-    'AUTH_COOKIE_PATH': '/api/login/refresh/',
+    'AUTH_COOKIE_PATH': '/api/',
     'AUTH_COOKIE_SAMESITE': 'Lax',
 }
 
@@ -133,6 +133,7 @@ EMAIL_PORT = env('EMAIL_PORT')
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = env('EMAIL_ADD')
 EMAIL_HOST_PASSWORD = env('EMAIL_PASS')
-DEFAULT_FROM_EMAIL = env('EMAIL_PASS')
+DEFAULT_FROM_EMAIL = env('EMAIL_ADD')
+SIGNUP_URL=env('SIGNUP_URL')
 
 CORS_ALLOW_CREDENTIALS = True

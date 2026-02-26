@@ -1,9 +1,8 @@
-from django.db.models import Q
-from rest_framework import exceptions, serializers
+from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .models import CustomUser
-from .utils import verify_signup_jwt
+from .utils import verify_signup_jwt,encrypt_token
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -22,28 +21,35 @@ class UserSerializer(serializers.ModelSerializer):
             'password', 'created_at'
         ]
         read_only_fields = ['user_id', 'created_at', 'email']
+        
+        extra_kwargs = {
+            'jira_api_token': {'write_only': True},
+        }
 
     def validate(self, attrs):
         if self.instance is None:
-            token = attrs.pop('token')
+            token = attrs.pop('token', None)
+            if not token:
+                raise serializers.ValidationError(
+                    {"token": "Token is required for registration."}
+                )
 
             try:
                 email = verify_signup_jwt(token)
-
-                if not token:
+                if not email:
                     raise serializers.ValidationError(
-                        {"token": "Token is required for registration."}
+                        {"token": "The provided token is invalid or missing the email claim."}
                     )
 
                 if CustomUser.objects.filter(email=email).exists():
-                    raise exceptions.ValidationError(
+                    raise serializers.ValidationError(
                         {"email": "User already exists with this email."}
                     )
 
                 attrs['email'] = email
 
             except ValueError as e:
-                raise exceptions.ValidationError({"token": str(e)})
+                raise serializers.ValidationError({"token": str(e)})
         else:
             attrs.pop('token', None)
             
@@ -56,7 +62,16 @@ class UserSerializer(serializers.ModelSerializer):
         password = validated_data.pop('password', None)
         if password:
             instance.set_password(password)
-        return super().update(instance, validated_data)
+            
+        jira_token = validated_data.pop('jira_api_token', None)
+        if jira_token:
+            instance.jira_api_token = encrypt_token(jira_token)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+            
+        instance.save()
+        return instance
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):

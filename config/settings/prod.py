@@ -13,7 +13,4 @@ SIMPLE_JWT['AUTH_COOKIE_SAMESITE'] = 'Strict'
 
 CORS_ALLOW_ALL_ORIGINS = False
 
-CORS_ALLOWED_ORIGINS = [
-    "https://frontend-domain.com",
-    "https://www.frontend-domain.com",
-]
+CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
