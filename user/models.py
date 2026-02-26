@@ -40,7 +40,7 @@ class UserManager(BaseUserManager, SafeDeleteManager):
         try:
             validate_email(email)
         except ValidationError:
-            raise ValueError("You must have provided a valid email address")
+            raise ValueError("You must have provided a valid email address") from None
 
         if not password:
             raise ValueError("Password is required")
@@ -86,8 +86,8 @@ class CustomUser(AbstractBaseUser, PermissionsMixin, SafeDeleteModel):
     jira_api_token= models.TextField(unique=True,max_length=256)
     email = models.EmailField(unique=True)
     first_name = models.TextField(max_length=50)
-    last_name = models.TextField(max_length=50, null=True, blank=True)
-    about = models.TextField(max_length=500, null=True, blank=True)
+    last_name = models.TextField(max_length=50,blank=True)
+    about = models.TextField(max_length=500, blank=True)
     role = models.TextField(
         choices=Roles.choices,
         max_length=3,

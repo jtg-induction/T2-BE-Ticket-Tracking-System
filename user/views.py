@@ -134,7 +134,7 @@ class RequestSignupLinkView(GenericAPIView):
             send_registration_email(email, signup_url)
         except Exception as e:
             return Response(
-                {"message": f"Failed to send email: Some error occured"},
+                {"message": "Failed to send email: Some error occured"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
