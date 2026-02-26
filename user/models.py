@@ -109,10 +109,6 @@ class CustomUser(AbstractBaseUser, PermissionsMixin, SafeDeleteModel):
         Helper to retrieve the usable plaintext token.
         """
         return decrypt_token(self.jira_api_token)
-
-    def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
-        
-        
+            
     def __str__(self):
         return self.email

@@ -50,7 +50,7 @@ class CustomLoginView(TokenObtainPairView):
                 secure=settings.SIMPLE_JWT['AUTH_COOKIE_SECURE'],
                 httponly=settings.SIMPLE_JWT['AUTH_COOKIE_HTTP_ONLY'],
                 samesite=settings.SIMPLE_JWT['AUTH_COOKIE_SAMESITE'],
-                path='/api/',
+                path=settings.SIMPLE_JWT.get('AUTH_COOKIE_PATH'),
             )
         return response
 
