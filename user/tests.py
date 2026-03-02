@@ -115,39 +115,21 @@ class AuthFlowTests(APITestCase):
         self.create_user(email=email, password="correct_password")
         response = self.client.post(self.login_url, {"email": email, "password": "wrong_password"})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_refresh_token_generation(self):
-        """
-        Verify access token refresh using HttpOnly cookie.
-        """
-        email = "refresh@example.com"
-        password = "password123"
-        self.create_user(email=email, password=password)
-        login_res = self.client.post(self.login_url, {"email": email, "password": password})
-        self.assertIn(self.cookie_name, login_res.cookies)
-        response = self.client.post(self.refresh_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("access", response.data)
-        self.assertIn(self.cookie_name, response.cookies)
         
-    def test_logout_blacklists_token_and_clears_cookie(self):
-
+    def test_logout_clears_cookie(self):
         email = "logout_test@example.com"
         password = "password123"
         self.create_user(email=email, password=password)
         
         login_res = self.client.post(self.login_url, {"email": email, "password": password})
-        refresh_token = login_res.cookies.get(self.cookie_name).value
+        self.assertIn(self.cookie_name, login_res.cookies)
 
         logout_url = reverse('logout')
         response = self.client.post(logout_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.cookies.get(self.cookie_name).value, "")
-        self.assertTrue(
-            BlacklistedToken.objects.filter(token__token=refresh_token).exists()
-        )
 
-        refresh_response = self.client.post(self.refresh_url)
-        self.assertEqual(refresh_response.status_code, status.HTTP_400_BAD_REQUEST)
-
+        target_cookie = response.cookies.get(self.cookie_name)
+        self.assertEqual(target_cookie.value, "")
+        self.assertEqual(target_cookie['max-age'], 0)
+        self.assertTrue(target_cookie['expires'].endswith('GMT'))

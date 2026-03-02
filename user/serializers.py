@@ -1,8 +1,10 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
+from core.utils import encrypt_token
 from .models import CustomUser
-from .utils import verify_signup_jwt,encrypt_token
+from .utils import verify_signup_jwt
+
 
 
 class UserSerializer(serializers.ModelSerializer):

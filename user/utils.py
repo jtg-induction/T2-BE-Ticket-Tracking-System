@@ -1,10 +1,6 @@
-import base64
-import hashlib
-import json
 from datetime import datetime, timedelta, timezone
 
 import jwt
-from Crypto.Cipher import AES
 from django.conf import settings
 from django.core.mail import send_mail
 
@@ -58,41 +54,30 @@ def send_registration_email(email, signup_url):
         fail_silently=False,
     )
 
+def set_auth_cookie(response, refresh_token):
+    """
+    Utility to set the JWT refresh token cookie.
+    """
+    response.set_cookie(
+        key=settings.SIMPLE_JWT['AUTH_COOKIE'],
+        value=refresh_token,
+        max_age=settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds(),
+        secure=settings.SIMPLE_JWT.get('AUTH_COOKIE_SECURE', False),
+        httponly=settings.SIMPLE_JWT.get('AUTH_COOKIE_HTTP_ONLY', True),
+        samesite=settings.SIMPLE_JWT.get('AUTH_COOKIE_SAMESITE', 'Lax'),
+        path=settings.SIMPLE_JWT.get('AUTH_COOKIE_PATH', '/api/'),
+    )
 
-
-def get_aes_key():
-    raw_key = settings.SECRET_KEY.encode()
-    return hashlib.sha256(raw_key).digest()
-
-def encrypt_token(raw_token):
-    if not raw_token:
-        return None
+def clear_auth_cookie(response):
+    """
+    Utility to remove the JWT auth cookie from a given response.
+    """
+    cookie_name = settings.SIMPLE_JWT.get('AUTH_COOKIE', 'access_token')
     
-    key = get_aes_key()
-    cipher = AES.new(key, AES.MODE_GCM)
-    ciphertext, tag = cipher.encrypt_and_digest(raw_token.encode())
-    
-    package = {
-        'nonce': base64.b64encode(cipher.nonce).decode(),
-        'tag': base64.b64encode(tag).decode(),
-        'ciphertext': base64.b64encode(ciphertext).decode()
-    }
-    return base64.b64encode(json.dumps(package).encode()).decode()
-
-def decrypt_token(encrypted_token):
-    if not encrypted_token:
-        return None
-    
-    try:
-        key = get_aes_key()
-        raw_data = base64.b64decode(encrypted_token).decode()
-        package = json.loads(raw_data)
-        
-        nonce = base64.b64decode(package['nonce'])
-        tag = base64.b64decode(package['tag'])
-        ciphertext = base64.b64decode(package['ciphertext'])
-        
-        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-        return cipher.decrypt_and_verify(ciphertext, tag).decode()
-    except Exception:
-        return None
+    response.delete_cookie(
+        key=cookie_name,
+        path=settings.SIMPLE_JWT.get('AUTH_COOKIE_PATH', '/api/'),
+        domain=settings.SIMPLE_JWT.get('AUTH_COOKIE_DOMAIN', None),
+        samesite=settings.SIMPLE_JWT.get('AUTH_COOKIE_SAMESITE', 'Lax')
+    )
+    return response

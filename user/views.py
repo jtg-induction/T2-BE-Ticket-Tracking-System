@@ -9,7 +9,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import CustomUser
 from .serializers import SignupLinkRequestSerializer, UserSerializer
-from .utils import generate_signup_jwt, send_registration_email
+from .utils import generate_signup_jwt, send_registration_email, set_auth_cookie, clear_auth_cookie
 
 class UserViewSet(
     mixins.CreateModelMixin,
@@ -38,79 +38,60 @@ class CustomLoginView(TokenObtainPairView):
     View to handle login
     """
     def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
-
-        if response.status_code == 200:
-            refresh_token = response.data.pop('refresh')
-
-            response.set_cookie(
-                key=settings.SIMPLE_JWT['AUTH_COOKIE'],
-                value=refresh_token,
-                max_age=settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds(),
-                secure=settings.SIMPLE_JWT['AUTH_COOKIE_SECURE'],
-                httponly=settings.SIMPLE_JWT['AUTH_COOKIE_HTTP_ONLY'],
-                samesite=settings.SIMPLE_JWT['AUTH_COOKIE_SAMESITE'],
-                path=settings.SIMPLE_JWT.get('AUTH_COOKIE_PATH'),
-            )
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        tokens = serializer.validated_data
+        access_token = tokens.get('access')
+        refresh_token = tokens.get('refresh')
+        response = Response({'access': access_token}, status=status.HTTP_200_OK)
+        set_auth_cookie(response, refresh_token)
+        
         return response
 
 
 class LogoutView(APIView):
     """
-    View to handle log out
+    View to handle log out by clearing the authentication cookie.
     """
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        refresh_token = request.COOKIES.get(settings.SIMPLE_JWT['AUTH_COOKIE'])
-
-        if refresh_token:
-            try:
-                token = RefreshToken(refresh_token)
-                token.blacklist()
-            except Exception:
-                pass
-
         response = Response(
             {"message": "Successfully logged out"},
             status=status.HTTP_200_OK
         )
-
-        response.delete_cookie(
-            key=settings.SIMPLE_JWT['AUTH_COOKIE'],
-            path=settings.SIMPLE_JWT.get('AUTH_COOKIE_PATH', '/api/'),
-            samesite=settings.SIMPLE_JWT.get('AUTH_COOKIE_SAMESITE', 'Lax')
-        )
+        clear_auth_cookie(response)
         
         return response
-
+    
 
 class CustomTokenRefreshView(TokenRefreshView):
     """
     View to handle refresh token rotation
     """
-    def post(self, request, *args, **kwargs):
+    def post(self, request):
         refresh_token = request.COOKIES.get(settings.SIMPLE_JWT['AUTH_COOKIE'])
 
-        if refresh_token:
-            data = dict(request.data)
-            data['refresh'] = refresh_token
-            request._full_data = data
+        if not refresh_token:
+            return Response(
+                {"detail": "Refresh token missing."}, 
+                status=status.HTTP_401_UNAUTHORIZED
+            )
 
-        response = super().post(request, *args, **kwargs)
+        serializer = self.get_serializer(data={'refresh': refresh_token})
+        
+        try:
+            serializer.is_valid(raise_exception=True)
+        except Exception:
+            return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
 
-        if response.status_code == 200:
-            if 'refresh' in response.data:
-                new_refresh_token = response.data.pop('refresh')
-                response.set_cookie(
-                    key=settings.SIMPLE_JWT['AUTH_COOKIE'],
-                    value=new_refresh_token,
-                    max_age=settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds(),
-                    secure=settings.SIMPLE_JWT.get('AUTH_COOKIE_SECURE', False),
-                    httponly=settings.SIMPLE_JWT.get('AUTH_COOKIE_HTTP_ONLY', True),
-                    samesite=settings.SIMPLE_JWT.get('AUTH_COOKIE_SAMESITE', 'Lax'),
-                    path=settings.SIMPLE_JWT.get('AUTH_COOKIE_PATH', '/api/'),
-                )
+        tokens = serializer.validated_data
+        response = Response({'access': tokens.get('access')}, status=status.HTTP_200_OK)
+
+        new_refresh = tokens.get('refresh')
+        if new_refresh:
+            set_auth_cookie(response, new_refresh)
+
         return response
 
 
@@ -124,10 +105,8 @@ class RequestSignupLinkView(GenericAPIView):
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
         email = serializer.validated_data['email']
         token = generate_signup_jwt(email)
-
         signup_url = f"{settings.SIGNUP_URL}?token={token}"
 
         try:
