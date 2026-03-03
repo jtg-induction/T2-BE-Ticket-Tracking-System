@@ -1,12 +1,14 @@
 import uuid
-from django.urls import reverse
-from django.core import mail
+
 from django.conf import settings
+from django.core import mail
+from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
+
 from user.models import CustomUser
 from user.utils import generate_signup_jwt
-from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+
 
 class AuthFlowTests(APITestCase):
     """
@@ -17,39 +19,39 @@ class AuthFlowTests(APITestCase):
         """
         Initialize test URLs and settings.
         """
-        self.request_link_url = reverse('request-signup-link')
-        self.signup_url = reverse('user-profile-list')
-        self.login_url = reverse('token_obtain_pair')
-        self.refresh_url = reverse('token_refresh')
-        self.cookie_name = settings.SIMPLE_JWT.get('AUTH_COOKIE', 'refresh_token')
+        self.request_link_url = reverse("request-signup-link")
+        self.signup_url = reverse("user-profile-list")
+        self.login_url = reverse("token_obtain_pair")
+        self.refresh_url = reverse("token_refresh")
+        self.cookie_name = settings.SIMPLE_JWT.get("AUTH_COOKIE", "refresh_token")
 
     def create_user(self, email, password="password123", **extra_fields):
         """
         Helper to create a user instance.
         """
-        if 'first_name' not in extra_fields:
-            extra_fields['first_name'] = f"TestUser_{uuid.uuid4().hex[:4]}"
-        
-        if 'jira_id' not in extra_fields:
-            extra_fields['jira_id'] = f"JIRA-{uuid.uuid4().hex[:8]}"
-        
-        if 'jira_api_token' not in extra_fields:
-            extra_fields['jira_api_token'] = f"JIRA-{uuid.uuid4().hex[:8]}"
+        if "first_name" not in extra_fields:
+            extra_fields["first_name"] = f"TestUser_{uuid.uuid4().hex[:4]}"
+
+        if "jira_id" not in extra_fields:
+            extra_fields["jira_id"] = f"JIRA-{uuid.uuid4().hex[:8]}"
+
+        if "jira_api_token" not in extra_fields:
+            extra_fields["jira_api_token"] = f"JIRA-{uuid.uuid4().hex[:8]}"
 
         return CustomUser.objects.create_user(
-            email=email,
-            password=password,
-            **extra_fields
+            email=email, password=password, **extra_fields
         )
 
     def test_request_link_success(self):
         """
         Verify successful signup link request sends an email.
         """
-        response = self.client.post(self.request_link_url, {"email": "new_user@example.com"})
+        response = self.client.post(
+            self.request_link_url, {"email": "new_user@example.com"}
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(mail.outbox), 1)
-        self.assertIn("Verification link", response.data['message'])
+        self.assertIn("Verification link", response.data["message"])
 
     def test_request_link_fails_if_user_exists(self):
         """
@@ -73,7 +75,7 @@ class AuthFlowTests(APITestCase):
             "first_name": "Test",
             "last_name": "User",
             "jira_id": "76341809",
-            "jira_api_token": "some_token"
+            "jira_api_token": "some_token",
         }
         response = self.client.post(self.signup_url, data)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -89,7 +91,7 @@ class AuthFlowTests(APITestCase):
             "first_name": "Test",
             "last_name": "User",
             "jira_id": "76341809",
-            "jira_api_token": "some_token"
+            "jira_api_token": "some_token",
         }
         response = self.client.post(self.signup_url, data)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -102,7 +104,9 @@ class AuthFlowTests(APITestCase):
         email = "login@example.com"
         password = "correct_password"
         self.create_user(email=email, password=password)
-        response = self.client.post(self.login_url, {"email": email, "password": password})
+        response = self.client.post(
+            self.login_url, {"email": email, "password": password}
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("access", response.data)
         self.assertNotIn("refresh", response.data)
@@ -113,23 +117,27 @@ class AuthFlowTests(APITestCase):
         """
         email = "login@example.com"
         self.create_user(email=email, password="correct_password")
-        response = self.client.post(self.login_url, {"email": email, "password": "wrong_password"})
+        response = self.client.post(
+            self.login_url, {"email": email, "password": "wrong_password"}
+        )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        
+
     def test_logout_clears_cookie(self):
         email = "logout_test@example.com"
         password = "password123"
         self.create_user(email=email, password=password)
-        
-        login_res = self.client.post(self.login_url, {"email": email, "password": password})
+
+        login_res = self.client.post(
+            self.login_url, {"email": email, "password": password}
+        )
         self.assertIn(self.cookie_name, login_res.cookies)
 
-        logout_url = reverse('logout')
+        logout_url = reverse("logout")
         response = self.client.post(logout_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         target_cookie = response.cookies.get(self.cookie_name)
         self.assertEqual(target_cookie.value, "")
-        self.assertEqual(target_cookie['max-age'], 0)
-        self.assertTrue(target_cookie['expires'].endswith('GMT'))
+        self.assertEqual(target_cookie["max-age"], 0)
+        self.assertTrue(target_cookie["expires"].endswith("GMT"))
