@@ -54,7 +54,7 @@ class UserSerializer(serializers.ModelSerializer):
                         }
                     )
 
-                if CustomUser.objects.filter(email=email).exists():
+                if CustomUser.all_objects.filter(email=email).exists():
                     raise serializers.ValidationError(
                         {"email": "User already exists with this email."}
                     )
@@ -122,7 +122,7 @@ class SignupLinkRequestSerializer(serializers.Serializer):
 
     def validate_email(self, value):
         email = value.lower()
-        if CustomUser.objects.filter(email=email).exists():
+        if CustomUser.all_objects.filter(email=email).exists():
             raise serializers.ValidationError(
                 "An account with this email already exists."
             )
