@@ -7,7 +7,11 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .models import CustomUser
-from .serializers import SignupLinkRequestSerializer, UserSerializer
+from .serializers import (
+    CustomTokenObtainPairSerializer,
+    SignupLinkRequestSerializer,
+    UserSerializer,
+)
 from .utils import (
     clear_auth_cookie,
     generate_signup_jwt,
@@ -37,6 +41,25 @@ class UserViewSet(
             return [permissions.AllowAny()]
 
         return [permissions.IsAuthenticated()]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = serializer.save()
+
+        token_serializer = CustomTokenObtainPairSerializer()
+        tokens = token_serializer.get_token(user)
+
+        response_data = {
+            "access": str(tokens.access_token),
+            "user": UserSerializer(user).data,
+        }
+
+        response = Response(response_data, status=status.HTTP_201_CREATED)
+        set_auth_cookie(response, str(tokens))
+
+        return response
 
 
 class CustomLoginView(TokenObtainPairView):
