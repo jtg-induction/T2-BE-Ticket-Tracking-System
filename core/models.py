@@ -11,8 +11,10 @@ class SafeDeleteQuerySet(models.QuerySet):
         """
         Bulk soft delete implementation.
         """
-        count = self.update(is_deleted=True)
-        return (count, {self.model._meta.label: count})
+        for obj in self:
+            obj.delete()
+
+        return (len(self), {self.model._meta.label: len(self)})
 
     def hard_delete(self):
         """
@@ -72,6 +74,16 @@ class BaseModel(models.Model):
         """
         self.is_deleted = True
         self.save(update_fields=["is_deleted", "updated_at"], using=using)
+
+        for related_object in self._meta.related_objects:
+            if related_object.on_delete == models.CASCADE and issubclass(
+                related_object.related_model, BaseModel
+            ):
+                related_queryset = getattr(
+                    self, related_object.get_accessor_name()
+                ).all()
+                related_queryset.delete()
+
         return (1, {self._meta.label: 1})
 
     def hard_delete(self, using=None):

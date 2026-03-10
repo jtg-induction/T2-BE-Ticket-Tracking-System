@@ -7,20 +7,6 @@ from Crypto.Cipher import AES
 from django.conf import settings
 
 
-def SOFT_CASCADE(collector, field, sub_objs, using):
-    """
-    Custom on_delete handler that mimics CASCADE but uses soft-delete,
-    """
-
-    objs = list(sub_objs)
-    sub_objs.using(using).delete()
-
-    for obj in objs:
-        collector.collect(
-            [obj], source=field.remote_field.model, source_attr=field.name
-        )
-
-
 def get_aes_key():
     raw_key = settings.SECRET_KEY.encode()
     return hashlib.sha256(raw_key).digest()
