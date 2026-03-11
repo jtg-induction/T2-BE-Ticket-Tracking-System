@@ -8,11 +8,19 @@ from django.conf import settings
 
 
 def get_aes_key():
+    """
+    Derives a 256-bit AES key from the Django SECRET_KEY.
+    Returns:
+        bytes: A 32-byte hash to be used as an encryption key.
+    """
     raw_key = settings.SECRET_KEY.encode()
     return hashlib.sha256(raw_key).digest()
 
 
 def encrypt_token(raw_token):
+    """
+    Encrypts a string using AES-GCM and returns a base64 encoded JSON package.
+    """
     if not raw_token:
         return None
 
@@ -29,6 +37,9 @@ def encrypt_token(raw_token):
 
 
 def decrypt_token(encrypted_token):
+    """
+    Decrypts a base64 encoded AES-GCM package.
+    """
     if not encrypted_token:
         return None
 

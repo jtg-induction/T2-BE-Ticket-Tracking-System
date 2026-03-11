@@ -21,6 +21,19 @@ class UserManager(BaseUserManager, SoftDeleteManager):
     def create_user(
         self, email, jira_id, jira_api_token, password=None, **extra_fields
     ):
+        """
+        Creates and saves a User with the given email, Jira ID, and encrypted token.
+
+        Args:
+            email (str): The unique email address used for login.
+            jira_id (str): The unique Atlassian account identifier.
+            jira_api_token (str): The raw Jira API token (will be encrypted).
+            password (str): The user's password.
+            **extra_fields: Additional fields passed to the User model.
+
+        Returns:
+            CustomUser: The newly created user instance.
+        """
 
         email = self.normalize_email(email)
         user = self.model(
@@ -36,6 +49,20 @@ class UserManager(BaseUserManager, SoftDeleteManager):
     def create_superuser(
         self, email, jira_id, jira_api_token, password=None, **extra_fields
     ):
+        """
+        Creates and saves a superuser with the given credentials.
+
+        Args:
+            email (str): The unique email address used for login.
+            jira_id (str): The unique Atlassian account identifier.
+            jira_api_token (str): The raw Jira API token.
+            password (strl): The user's password.
+            **extra_fields: Additional fields (is_staff and is_superuser set to True).
+
+        Returns:
+            CustomUser: The newly created superuser instance.
+        """
+
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
 
@@ -46,7 +73,7 @@ class UserManager(BaseUserManager, SoftDeleteManager):
 
 class CustomUser(AbstractBaseUser, PermissionsMixin, BaseModel):
     """
-    Custom user model inheriting from BaseModel.
+    Custom User model using email as the unique identifier and integrating Jira credentials.
     """
 
     user_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -69,7 +96,19 @@ class CustomUser(AbstractBaseUser, PermissionsMixin, BaseModel):
     objects = UserManager()
 
     def get_decrypted_jira_token(self):
+        """
+        Decrypts the stored Jira API token.
+
+        Returns:
+            str: The raw (decrypted) Jira API token for use in external requests.
+        """
         return decrypt_token(self.jira_api_token)
 
     def __str__(self):
+        """
+        Returns a string representation of the user.
+
+        Returns:
+            str: The user's email address.
+        """
         return self.email

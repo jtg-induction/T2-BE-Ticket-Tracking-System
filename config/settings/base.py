@@ -102,7 +102,11 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-    )
+    ),
+    "DEFAULT_RENDERER_CLASSES": [
+        "core.renderer.StandardizedJSONRenderer",
+        "rest_framework.renderers.BrowsableAPIRenderer",
+    ],
 }
 
 AUTH_USER_MODEL = 'user.CustomUser'

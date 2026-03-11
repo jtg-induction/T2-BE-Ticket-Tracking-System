@@ -8,7 +8,14 @@ from django.core.mail import send_mail
 def generate_signup_jwt(email):
     """
     Handles the creation for signup jwt
+
+    Args:
+        email: Email string to generate corresponding payload
+
+    Returns:
+        payload: Encoded jwt payload
     """
+
     payload = {
         "email": email,
         "exp": datetime.now(timezone.utc) + timedelta(minutes=30),
@@ -21,6 +28,12 @@ def generate_signup_jwt(email):
 def verify_signup_jwt(token):
     """
     Handles the verification for signup jwt
+
+    Args:
+        token: The token to be verified.
+
+    Returns:
+        email: if the token is verified it returns the email
     """
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
@@ -36,6 +49,10 @@ def verify_signup_jwt(token):
 def send_registration_email(email, signup_url):
     """
     Handles the construction and sending of the registration email.
+
+    Args:
+        email: where to send email
+        signup_url: Token embadded url for registration
     """
     subject = "Complete Your Registration"
     message = (
@@ -60,6 +77,12 @@ def send_registration_email(email, signup_url):
 def set_auth_cookie(response, refresh_token):
     """
     Utility to set the JWT refresh token cookie.
+    Args:
+        response (HttpResponse): The Django response object to attach the cookie to.
+        refresh_token (str): The raw refresh token string.
+
+    Returns:
+        None: Modifies the response object in-place.
     """
     response.set_cookie(
         key=settings.SIMPLE_JWT["AUTH_COOKIE"],
@@ -75,6 +98,12 @@ def set_auth_cookie(response, refresh_token):
 def clear_auth_cookie(response):
     """
     Utility to remove the JWT auth cookie from a given response.
+
+    Args:
+        response (HttpResponse): The Django response object to clear the cookie from.
+
+    Returns:
+        HttpResponse: The modified response object with the deletion instruction.
     """
     cookie_name = settings.SIMPLE_JWT.get("AUTH_COOKIE", "refresh_token")
 

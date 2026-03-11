@@ -9,7 +9,10 @@ from .utils import verify_signup_jwt
 
 class UserSerializer(serializers.ModelSerializer):
     """
-    User serializer to handle CRUD user.
+    Serializer for handling User CRUD operations and registration.
+
+    Manages user data including sensitive Jira credentials
+    and handles the logic for token-based registration via `verify_signup_jwt`.
     """
 
     password = serializers.CharField(write_only=True, required=True)
@@ -38,6 +41,16 @@ class UserSerializer(serializers.ModelSerializer):
         }
 
     def validate(self, attrs):
+        """
+        Validates the registration token or update data.
+
+        Args:
+            attrs (dict): The dictionary of input data.
+
+        Returns:
+            dict: The validated data with the verified email injected if registering.
+        """
+
         if self.instance is None:
             token = attrs.pop("token", None)
             if not token:
@@ -69,9 +82,28 @@ class UserSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
+        """
+        Creates a new CustomUser instance using the UserManager.
+
+        Args:
+            validated_data (dict): Validated data from the serializer.
+
+        Returns:
+            CustomUser: The created user instance.
+        """
         return CustomUser.objects.create_user(**validated_data)
 
     def update(self, instance, validated_data):
+        """
+        Updates an existing CustomUser instance.
+
+        Args:
+            instance (CustomUser): The user instance to update.
+            validated_data (dict): The new data to apply.
+
+        Returns:
+            CustomUser: The updated user instance.
+        """
         password = validated_data.pop("password", None)
         if password:
             instance.set_password(password)
@@ -94,11 +126,30 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     @classmethod
     def get_token(cls, user):
+        """
+        Extends the standard token with custom claims.
+
+        Args:
+            user (CustomUser): The user instance for which the token is generated.
+
+        Returns:
+            Token: The JWT token object with added claims.
+        """
         token = super().get_token(user)
         token["jira_id"] = user.jira_id
         return token
 
     def validate(self, attrs):
+        """
+        Extends the validation response data with user profile information.
+
+        Args:
+            attrs (dict): User credentials (email and password).
+
+        Returns:
+            dict: The standard response data (access/refresh) plus a 'user' object.
+        """
+
         data = super().validate(attrs)
         data["user"] = {
             "user_id": self.user.user_id,
@@ -115,12 +166,21 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 class SignupLinkRequestSerializer(serializers.Serializer):
     """
-    Serializer to handle signup email
+    Serializer to validate requests for sending a signup email.
     """
 
     email = serializers.EmailField()
 
     def validate_email(self, value):
+        """
+        Checks for existing accounts.
+
+        Args:
+            value (str): The raw email string.
+
+        Returns:
+            str: The email string.
+        """
         email = value.lower()
         if CustomUser.all_objects.filter(email=email).exists():
             raise serializers.ValidationError(

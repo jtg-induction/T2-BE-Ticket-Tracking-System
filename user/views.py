@@ -28,7 +28,9 @@ class UserViewSet(
     viewsets.GenericViewSet,
 ):
     """
-    ViewSet for CRUD user.
+    ViewSet for managing CustomUser CRUD operations.
+
+    Provides endpoints for listing, retrieving, updating, and creating users.
     """
 
     queryset = CustomUser.objects.all()
@@ -37,12 +39,21 @@ class UserViewSet(
     pagination_class = PageNumberPagination
 
     def get_permissions(self):
+        """
+        Returns the list of permissions that this view requires.
+        """
         if self.action == "create":
             return [permissions.AllowAny()]
 
         return [permissions.IsAuthenticated()]
 
     def create(self, request, *args, **kwargs):
+        """
+        Handles user registration.
+
+        Returns:
+            Response: User data and access token with a 201 status.
+        """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -64,7 +75,7 @@ class UserViewSet(
 
 class CustomLoginView(TokenObtainPairView):
     """
-    View to handle login
+    View to handle user login and JWT issuance.
     """
 
     def post(self, request, *args, **kwargs):
@@ -87,6 +98,15 @@ class LogoutView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
+        """
+        Authenticates user credentials and returns an access token.
+
+        Args:
+            request: The HTTP request containing login credentials.
+
+        Returns:
+            Response: Access token in the body and refresh token in a secure cookie.
+        """
         response = Response(
             {"message": "Successfully logged out"}, status=status.HTTP_200_OK
         )
@@ -101,6 +121,12 @@ class CustomTokenRefreshView(TokenRefreshView):
     """
 
     def post(self, request):
+        """
+        Clears the auth cookie from the response.
+
+        Returns:
+            Response: Success message with a 200 status.
+        """
         refresh_token = request.COOKIES.get(settings.SIMPLE_JWT["AUTH_COOKIE"])
 
         if not refresh_token:
@@ -128,13 +154,19 @@ class CustomTokenRefreshView(TokenRefreshView):
 
 class RequestSignupLinkView(GenericAPIView):
     """
-    Caters the signup url request
+    Handles requests for registration signup links.
     """
 
     permission_classes = [permissions.AllowAny]
     serializer_class = SignupLinkRequestSerializer
 
     def post(self, request):
+        """
+        Generates a signup JWT and sends it via email.
+
+        Returns:
+            Response: Success message or 500 status if email delivery fails.
+        """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
