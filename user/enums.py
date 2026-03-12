@@ -9,5 +9,5 @@ class Roles(models.TextChoices):
     software_dev = "SD", "Software Developer"
     senior_software_dev = "SSD", "Senior Software Developer"
     quality_analyst = "QA", "Quality Analyst"
-    manager = "M", "manager"
-    designer = "DG", "designer"
+    manager = "M", "Manager"
+    designer = "DG", "Designer"
