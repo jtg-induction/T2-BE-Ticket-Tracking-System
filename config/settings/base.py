@@ -104,7 +104,7 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     "DEFAULT_RENDERER_CLASSES": [
-        "core.renderer.StandardizedJSONRenderer",
+        "core.renders.StandardizedJSONRenderer",
         "rest_framework.renderers.BrowsableAPIRenderer",
     ],
 }
