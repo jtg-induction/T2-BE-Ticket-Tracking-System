@@ -4,6 +4,7 @@ from rest_framework.generics import GenericAPIView
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .models import CustomUser
@@ -79,6 +80,15 @@ class CustomLoginView(TokenObtainPairView):
     """
 
     def post(self, request, *args, **kwargs):
+        """
+        Authenticates user credentials and returns an access token.
+
+        Args:
+            request: The HTTP request containing login credentials.
+
+        Returns:
+            Response: Access token in the body and refresh token in a secure cookie.
+        """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         tokens = serializer.validated_data
@@ -99,7 +109,7 @@ class LogoutView(APIView):
 
     def post(self, request):
         """
-        Authenticates user credentials and returns an access token.
+        Logs out user and blacklists refresh token.
 
         Args:
             request: The HTTP request containing login credentials.
@@ -110,6 +120,13 @@ class LogoutView(APIView):
         response = Response(
             {"message": "Successfully logged out"}, status=status.HTTP_200_OK
         )
+        refresh_token = request.COOKIES.get(settings.SIMPLE_JWT["AUTH_COOKIE"])
+        if refresh_token:
+            try:
+                token = RefreshToken(refresh_token)
+                token.blacklist()
+            except TokenError:
+                pass
         clear_auth_cookie(response)
 
         return response
