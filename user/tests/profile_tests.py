@@ -37,7 +37,6 @@ class UserAPITests(APITestCase):
 
         self.me_url = reverse("user-me")
         self.detail_url = lambda uid: reverse("user-detail", kwargs={"user_id": uid})
-        self.list_all_url = reverse("user-list-all")
 
     def authenticate(self, user):
         """

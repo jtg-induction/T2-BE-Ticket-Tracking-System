@@ -25,7 +25,6 @@ class UserViewSet(
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
-    mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
     """
@@ -70,9 +69,6 @@ class UserViewSet(
         """
         if self.action == "create":
             return [permissions.AllowAny()]
-
-        if self.action == "list":
-            return [permissions.IsAdminUser()]
 
         return [permissions.IsAuthenticated()]
 
@@ -209,7 +205,7 @@ class RequestSignupLinkView(GenericAPIView):
         Generates a signup JWT and sends it via email.
 
         Returns:
-            Response: Success message or 500 status if email delivery fails.
+            Response: Success message or     status if email delivery fails.
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)

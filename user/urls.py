@@ -34,5 +34,4 @@ urlpatterns = [
         ),
         name="user-me",
     ),
-    path("user/all/", UserViewSet.as_view({"get": "list"}), name="user-list-all"),
 ]
