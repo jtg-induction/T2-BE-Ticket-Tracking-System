@@ -112,10 +112,10 @@ class LogoutView(APIView):
         Logs out user and blacklists refresh token.
 
         Args:
-            request: The HTTP request containing login credentials.
+            request (Request): The HTTP request object containing the refresh token in COOKIES.
 
-        Returns:
-            Response: Access token in the body and refresh token in a secure cookie.
+        Returns: A standard DRF Response with a success message and a 'Set-Cookie'
+                header with an expired date to clear the authentication cookie.
         """
         response = Response(
             {"message": "Successfully logged out"}, status=status.HTTP_200_OK
