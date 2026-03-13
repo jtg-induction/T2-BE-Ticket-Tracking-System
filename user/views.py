@@ -114,8 +114,7 @@ class LogoutView(APIView):
         Args:
             request (Request): The HTTP request object containing the refresh token in COOKIES.
 
-        Returns: A standard DRF Response with a success message and a 'Set-Cookie'
-                header with an expired date to clear the authentication cookie.
+        Returns: 'Set-Cookie' header with an expired date to clear the authentication cookie.
         """
         response = Response(
             {"message": "Successfully logged out"}, status=status.HTTP_200_OK
