@@ -13,7 +13,7 @@ def get_aes_key():
     Returns:
         bytes: A 32-byte hash to be used as an encryption key.
     """
-    raw_key = settings.SECRET_KEY.encode()
+    raw_key = settings.ENCRYPTION_KEY.encode()
     return hashlib.sha256(raw_key).digest()
 
 
