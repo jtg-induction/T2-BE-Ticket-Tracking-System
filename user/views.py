@@ -52,17 +52,6 @@ class UserViewSet(
             return self.request.user
         return super().get_object()
 
-    def get_serializer_context(self):
-        """
-        Extra context provided to the serializer class.
-
-        Returns:
-            dict: updated context
-        """
-        context = super().get_serializer_context()
-        context.update({"request": self.request})
-        return context
-
     def get_permissions(self):
         """
         Returns the list of permissions that this view requires.
@@ -89,7 +78,7 @@ class UserViewSet(
 
         response_data = {
             "access": str(tokens.access_token),
-            "user": UserSerializer(user).data,
+            "user": self.get_serializer(user).data,
         }
 
         response = Response(response_data, status=status.HTTP_201_CREATED)
@@ -205,7 +194,7 @@ class RequestSignupLinkView(GenericAPIView):
         Generates a signup JWT and sends it via email.
 
         Returns:
-            Response: Success message or     status if email delivery fails.
+            Response: Success message or 500 status if email delivery fails.
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
