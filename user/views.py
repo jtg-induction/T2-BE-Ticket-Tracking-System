@@ -25,7 +25,6 @@ class UserViewSet(
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
-    mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
     """
@@ -38,6 +37,20 @@ class UserViewSet(
     serializer_class = UserSerializer
     lookup_field = "user_id"
     pagination_class = PageNumberPagination
+
+    def get_object(self):
+        """
+        Returns the object the view is displaying.
+
+        If 'user_id' is not provided in the URL, it defaults to returning
+        the currently authenticated user.
+
+        Returns:
+            CustomUser: The user instance retrieved via lookup_field or current session.
+        """
+        if "user_id" not in self.kwargs:
+            return self.request.user
+        return super().get_object()
 
     def get_permissions(self):
         """
@@ -65,7 +78,7 @@ class UserViewSet(
 
         response_data = {
             "access": str(tokens.access_token),
-            "user": UserSerializer(user).data,
+            "user": self.get_serializer(user).data,
         }
 
         response = Response(response_data, status=status.HTTP_201_CREATED)
