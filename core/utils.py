@@ -8,6 +8,8 @@ from django.conf import settings
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
+from core.constants import PAGE_SIZE
+
 
 def get_aes_key():
     """
@@ -67,7 +69,7 @@ def decrypt_token(encrypted_token):
 
 
 class StandardizedPagination(PageNumberPagination):
-    page_size = 10
+    page_size = PAGE_SIZE
     page_size_query_param = "page_size"
 
     def get_paginated_response(self, data):

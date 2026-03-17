@@ -1,5 +1,5 @@
 from django.db.models import Q
-from rest_framework import status, viewsets
+from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -65,40 +65,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
             return base_qs.filter(is_archived=False)
 
         return base_qs
-
-    def list(self, request, *args, **kwargs):
-        """
-        Retrieve a paginated list of projects.
-
-        Filtering is handled by get_queryset to ensure users only see
-        projects they are involved in.
-        """
-        queryset = self.filter_queryset(self.get_queryset())
-
-        page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-
-        serializer = self.get_serializer(queryset, many=True)
-        return Response(data=serializer.data)
-
-    def retrieve(self, request, *args, **kwargs):
-        """
-        Get detailed information for a specific project.
-        """
-        instance = self.get_object()
-        serializer = self.get_serializer(instance)
-        return Response(serializer.data)
-
-    def create(self, request, *args, **kwargs):
-        """
-        Create a new project.
-        """
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, *args, **kwargs):
         """

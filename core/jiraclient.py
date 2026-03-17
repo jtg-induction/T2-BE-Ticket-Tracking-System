@@ -21,11 +21,26 @@ class JiraClient:
             api_token (str): The Jira API token of user.
         """
         self.base_url = site_url.rstrip("/")
-        self.auth = (user_email, api_token)
-        self.headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        }
+        self.session = requests.Session()
+        self.session.auth = (user_email, api_token)
+        self.session.headers.update(
+            {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            }
+        )
+
+    def _request(self, method, endpoint, data=None):
+        """
+        A private helper to handle common request logic.
+        """
+        url = f"{self.base_url}{endpoint}"
+        return self.session.request(
+            method=method,
+            url=url,
+            json=data,
+            timeout=self.DEFAULT_TIMEOUT_SECONDS,
+        )
 
     def post(self, endpoint, data):
         """
@@ -38,14 +53,7 @@ class JiraClient:
         Returns:
             requests.Response: The response from the Jira API.
         """
-        url = f"{self.base_url}{endpoint}"
-        return requests.post(
-            url,
-            json=data,
-            auth=self.auth,
-            headers=self.headers,
-            timeout=self.DEFAULT_TIMEOUT_SECONDS,
-        )
+        return self._request("POST", endpoint, data)
 
     def put(self, endpoint, data):
         """
@@ -58,11 +66,18 @@ class JiraClient:
         Returns:
             requests.Response: The raw response from the Jira API.
         """
-        url = f"{self.base_url}{endpoint}"
-        return requests.put(
-            url,
-            json=data,
-            auth=self.auth,
-            headers=self.headers,
-            timeout=self.DEFAULT_TIMEOUT_SECONDS,
-        )
+        return self._request("PUT", endpoint, data)
+
+    def get(self, endpoint, params):
+        """
+        Performs an authenticated GET request to a Jira API endpoint.
+
+        Args:
+            endpoint (str): The API path.
+            params (dict, optional): Query parameters to append to the URL.
+                                     Defaults to None.
+
+        Returns:
+            requests.Response: The raw response from the Jira API.
+        """
+        return self._request("GET", endpoint, params=params)

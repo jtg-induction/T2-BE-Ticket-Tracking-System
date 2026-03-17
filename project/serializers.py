@@ -5,10 +5,9 @@ from django.db import transaction
 from rest_framework import serializers
 
 from core.services import JiraProjectService
-from project.models import ProjectMember
 
 from .enums import MemberStatus
-from .models import ProjectModel
+from .models import ProjectMember, ProjectModel
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -133,9 +132,12 @@ class ProjectSerializer(serializers.ModelSerializer):
         Creates a local ProjectModel instance and its remote Jira counterpart.
         """
         user = self.context["request"].user
-        jira_id = JiraProjectService.create_jira_project(user, validated_data)
-        validated_data["jira_id"] = jira_id
-        return ProjectModel.objects.create_with_user(user=user, **validated_data)
+        with transaction.atomic():
+            project = ProjectModel.objects.create_with_user(user=user, **validated_data)
+            jira_id = JiraProjectService.create_jira_project(user, validated_data)
+            project.jira_id = jira_id
+            project.save()
+            return project
 
     def update(self, instance, validated_data):
         """

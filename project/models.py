@@ -2,37 +2,16 @@ import uuid
 
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models import QuerySet
 
-from core.models import BaseModel, SafeDeleteQuerySet, SoftDeleteManager
+from core.models import BaseModel, SoftDeleteManager
 
 from .enums import MemberStatus
-
-
-class ProjectQuerySet(SafeDeleteQuerySet):
-    """
-    Custom QuerySet to allow for chainable filters.
-    """
-
-    def active(self) -> QuerySet:
-        return self.filter(is_archived=False, is_deleted=False)
-
-    def owned_by(self, user) -> QuerySet:
-        return self.filter(owner=user)
 
 
 class ProjectManager(SoftDeleteManager):
     """
     Custom Manager for ProjectModel handling soft deletes and initialization.
     """
-
-    def get_queryset(self) -> ProjectQuerySet:
-        """Returns the custom ProjectQuerySet instance."""
-        return ProjectQuerySet(self.model, using=self._db)
-
-    def active(self) -> QuerySet:
-        """Shortcut to access the active() filter from the QuerySet."""
-        return self.get_queryset().active()
 
     def create_with_user(self, user, **project_data):
         """
@@ -66,7 +45,9 @@ class ProjectMember(BaseModel):
         related_name="project_memberships",
     )
     is_admin = models.BooleanField(default=False)
-    status = models.TextField(choices=MemberStatus.choices, default=MemberStatus.MEMBER)
+    status = models.CharField(
+        choices=MemberStatus.choices, default=MemberStatus.MEMBER, max_length=10
+    )
 
     class Meta:
         unique_together = ("project", "user")

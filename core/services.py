@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from .constants import ASSIGNEE_TYPE_LEAD, DEFAULT_PROJECT_TYPE, KANBAN_TEMPLATE
 from .jiraclient import JiraClient
 
 
@@ -8,8 +9,8 @@ class JiraProjectService:
     Service layer for coordinating  jira-related operations with the Jira Cloud API.
     """
 
-    @staticmethod
-    def _get_client(user, site_url):
+    @classmethod
+    def _get_client(cls, user, site_url):
         """
         Helper to instantiate an authenticated JiraClient.
 
@@ -22,8 +23,8 @@ class JiraProjectService:
         """
         return JiraClient(site_url, user.email, user.get_decrypted_jira_token())
 
-    @staticmethod
-    def _get_role_id_by_name(client, project_id, role_name):
+    @classmethod
+    def _get_role_id_by_name(cls, client, project_id, role_name):
         """
         Retrieves the unique numeric ID for a project role by its name.'
 
@@ -47,11 +48,15 @@ class JiraProjectService:
 
         if not role_url:
             raise serializers.ValidationError(f"Jira role '{role_name}' not found.")
+        try:
+            return role_url.split("/")[-1]
+        except (AttributeError, IndexError, ValueError):
+            raise serializers.ValidationError(
+                f"Jira returned an invalid URL format for role '{role_name}'."
+            )
 
-        return role_url.split("/")[-1]
-
-    @staticmethod
-    def create_jira_project(user, project_data):
+    @classmethod
+    def create_jira_project(cls, user, project_data):
         """
         Creates a new Software project in Jira Cloud.
 
@@ -63,16 +68,16 @@ class JiraProjectService:
         Returns:
             str: The unique Jira project ID returned by Atlassian on success.
         """
-        client = JiraProjectService._get_client(user, project_data["site_url"])
+        client = cls._get_client(user, project_data["site_url"])
 
         payload = {
             "key": project_data["jira_project_key"],
             "name": project_data["title"],
-            "projectTypeKey": "software",
-            "projectTemplateKey": "com.pyxis.greenhopper.jira:gh-simplified-agility-kanban",
+            "projectTypeKey": DEFAULT_PROJECT_TYPE,
+            "projectTemplateKey": KANBAN_TEMPLATE,
             "description": project_data.get("description", ""),
             "leadAccountId": user.jira_id,
-            "assigneeType": "PROJECT_LEAD",
+            "assigneeType": ASSIGNEE_TYPE_LEAD,
         }
 
         response = client.post("/rest/api/3/project", payload)
@@ -84,8 +89,8 @@ class JiraProjectService:
             f"Jira project creation Failed: {response.text}"
         )
 
-    @staticmethod
-    def update_jira_project(user, instance, validated_data):
+    @classmethod
+    def update_jira_project(cls, user, instance, validated_data):
         """
         Updates the project name or description in Jira Cloud.
 
@@ -97,7 +102,7 @@ class JiraProjectService:
         Returns:
             None
         """
-        client = JiraProjectService._get_client(user, instance.site_url)
+        client = cls._get_client(user, instance.site_url)
         project_id = instance.jira_id
 
         if "title" in validated_data or "description" in validated_data:
@@ -107,7 +112,7 @@ class JiraProjectService:
             }
             endpoint = f"/rest/api/3/project/{project_id}"
             response = client.put(endpoint, payload)
-            if response.status_code not in [200, 204]:
+            if response.status_code not in (200, 204):
                 raise serializers.ValidationError(
                     f"Jira Details Update Failed: {response.text}"
                 )
