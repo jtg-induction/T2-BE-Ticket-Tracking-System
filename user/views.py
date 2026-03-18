@@ -59,9 +59,6 @@ class UserViewSet(
         if self.action == "create":
             return [permissions.AllowAny()]
 
-        if self.action == "list":
-            return [permissions.IsAdminUser()]
-
         return [permissions.IsAuthenticated()]
 
     def create(self, request, *args, **kwargs):
