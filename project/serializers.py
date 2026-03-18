@@ -196,15 +196,12 @@ class InviteUserSerializer(serializers.Serializer):
                 "User is already a member of this project."
             )
 
-        if ProjectInvitation.objects.filter(
+        ProjectInvitation.objects.filter(
             project_id=project_id,
             invitee=invitee,
             is_accepted=False,
-            expires_at__gt=timezone.now(),
-        ).exists():
-            raise serializers.ValidationError(
-                "An active invitation already exists for this user."
-            )
+            expires_at__lte=timezone.now(),
+        ).delete()
 
         return attrs
 

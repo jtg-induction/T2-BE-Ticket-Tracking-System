@@ -158,8 +158,6 @@ class JiraProjectService:
         response = client.post(endpoint, payload)
 
         if response.status_code not in [200, 201]:
-            raise serializers.ValidationError(
-                f"Failed to add user to Jira: {response.text}"
-            )
+            raise serializers.ValidationError(f"{response.text}")
 
         return True

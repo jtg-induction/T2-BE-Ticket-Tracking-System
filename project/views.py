@@ -1,6 +1,7 @@
 from django.db import transaction
 from django.db.models import Q
-from rest_framework import status, views, viewsets
+from django.shortcuts import get_object_or_404
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -85,58 +86,91 @@ class ProjectViewSet(viewsets.ModelViewSet):
         serializer.save()
         return Response(serializer.data)
 
-    @action(detail=True, methods=["post"], serializer_class=InviteUserSerializer)
+
+class ProjectInvitationView(viewsets.GenericViewSet):
+    """
+    Unified ViewSet for managing the Project Invitation lifecycle.
+
+    This ViewSet centralizes the logic for sending invitations to users,
+    as well as the subsequent acceptance or rejection of those invitations.
+    It coordinates local database updates with external Jira project synchronization.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = InviteUserSerializer
+    queryset = ProjectModel.objects.all()
+
+    def _is_admin(self, user, project):
+        """
+        Check if a user has administrative privileges for a specific project.
+
+        Args:
+            user (CustomUser): The user instance to verify.
+            project (ProjectModel): The project instance being accessed.
+
+        Returns:
+            bool: True if the user is a staff member, the owner, or an admin member.
+        """
+        return (
+            user.is_staff
+            or project.owner == user
+            or ProjectMember.objects.filter(
+                project=project, user=user, is_admin=True, status=MemberStatus.MEMBER
+            ).exists()
+        )
+
+    @action(detail=True, methods=["post"])
     def invite(self, request, pk=None):
         """
-        POST /api/project/{id}/invite/
+        Send a project invitation to a specific user.
+
+        Verifies that the requester has administrative rights to the project,
+        validates the invitee's email, and creates a pending invitation record.
+
+        Args:
+            request (Request): The DRF request object containing 'email' and 'is_admin'.
+            pk (uuid): The primary key of the Project to invite the user to.
+
+        Returns:
+            Response: 201 Created on success, 403 Forbidden if unauthorized,
+                     or 400 Bad Request if validation fails.
         """
-        project = self.get_object()
-        if not (
-            request.user.is_staff
-            or project.owner_id == request.user.user_id
-            or ProjectMember.objects.filter(
-                project=project,
-                user=request.user,
-                is_admin=True,
-                status=MemberStatus.MEMBER,
-            ).exists()
-        ):
+        project = get_object_or_404(ProjectModel, pk=pk)
+
+        if not self._is_admin(request.user, project):
             return Response(
                 {"detail": "Only project admins can invite users."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+
         serializer = self.get_serializer(
-            data=request.data, context={"project_id": project.id, "request": request}
+            data=request.data,
+            context={**self.get_serializer_context(), "project_id": project.id},
         )
 
         serializer.is_valid(raise_exception=True)
         serializer.save()
-
         return Response(
             {"detail": "Invitation sent successfully."}, status=status.HTTP_201_CREATED
         )
 
-
-class AcceptInvitationView(views.APIView):
-    """
-    View to handle the acceptance of a project invitation.
-
-    Validates the unique invitation token, verifies the user's identity,
-    and adds the user to the remote Jira project
-    and updates the local ProjectMember record.
-    """
-
-    permission_classes = [IsAuthenticated]
-    renderer_classes = [StandardizedJSONRenderer]
-
-    def post(self, request, token):
+    @action(detail=False, methods=["post"], url_path="accept/(?P<token>[^/.]+)")
+    def accept(self, request, token=None):
         """
-        Accepts an invitation via a unique token.
+        Accept a project invitation using a unique secure token.
 
-        1. Validates the existence and expiration of the token.
-        2. Ensures the requester is the intended invitee.
-        3. Synchronizes with Jira API to add the member to the cloud project.
-        4. Updates or creates the local ProjectMember instance.
+        This action performs a dual-sync:
+        1. Local: Updates/Creates the ProjectMember record.
+        2. Remote: Adds the user to the corresponding Jira project via JiraProjectService.
+
+        Args:
+            request (Request): The DRF request object (must be the intended invitee).
+            token (str): The unique UUID/string token associated with the invitation.
+
+        Returns:
+            Response: 200 OK on success, 404 Not Found for invalid tokens,
+                     403 Forbidden if accessed by the wrong user, or 502 Bad Gateway
+                     if the Jira synchronization fails.
         """
         try:
             invitation = ProjectInvitation.objects.get(token=token)
@@ -145,26 +179,11 @@ class AcceptInvitationView(views.APIView):
                 {"detail": "Invalid token"}, status=status.HTTP_404_NOT_FOUND
             )
 
-        if not invitation.is_valid:
+        if not invitation.is_valid or invitation.invitee != request.user:
             return Response(
-                {"detail": "Invitation expired or already used"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if invitation.invitee != request.user:
-            return Response(
-                {"detail": "This invitation is not for you"},
+                {"detail": "Forbidden or expired invitation."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-
-        if ProjectMember.objects.filter(
-            project=invitation.project,
-            user=invitation.invitee,
-            status=MemberStatus.MEMBER,
-        ).exists():
-            invitation.is_accepted = True
-            invitation.save()
-            return Response({"detail": "You are already a member."})
 
         try:
             with transaction.atomic():
@@ -181,53 +200,40 @@ class AcceptInvitationView(views.APIView):
                     defaults={
                         "is_admin": invitation.is_admin,
                         "status": MemberStatus.MEMBER,
-                        "updated_by": invitation.invited_by,
                     },
                 )
 
                 invitation.is_accepted = True
                 invitation.save()
 
-        except Exception as e:
-            print(e)
+            return Response({"detail": "Joined project successfully."})
+        except Exception:
             return Response(
-                {"detail": "Jira sync failed. Please try again later."},
+                {"detail": "Jira sync failed. Please contact support."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        return Response({"detail": "Successfully joined the project"})
-
-
-class RejectInvitationView(views.APIView):
-    """
-    View to handle the rejection of a project invitation.
-
-    Allows an invitee to decline and remove an invitation record
-    from their pending list.
-    """
-
-    permission_classes = [IsAuthenticated]
-    renderer_classes = [StandardizedJSONRenderer]
-
-    def post(self, request, token):
+    @action(detail=False, methods=["post"], url_path="reject/(?P<token>[^/.]+)")
+    def reject(self, request, token=None):
         """
-        Rejects and deletes an invitation.
+        Reject and delete a pending project invitation.
 
+        Args:
+            request (Request): The DRF request object.
+            token (str): The token of the invitation to be rejected.
+
+        Returns:
+            Response: 200 OK on success, 404 Not Found if no pending
+                     invitation matches the token for this user.
         """
-        try:
-            invitation = ProjectInvitation.objects.get(token=token, is_accepted=False)
-        except ProjectInvitation.DoesNotExist:
-            return Response(
-                {"detail": "Invalid or expired invitation"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        invitation = ProjectInvitation.objects.filter(
+            token=token, invitee=request.user, is_accepted=False
+        ).first()
 
-        if invitation.invitee != request.user:
+        if not invitation:
             return Response(
-                {"detail": "This invitation is not for you"},
-                status=status.HTTP_403_FORBIDDEN,
+                {"detail": "Invitation not found."}, status=status.HTTP_404_NOT_FOUND
             )
 
         invitation.delete()
-
-        return Response({"detail": "Invitation rejected successfully"})
+        return Response({"detail": "Invitation rejected."})

@@ -151,7 +151,7 @@ class ProjectAPITests(APITestCase):
         data = self.get_json_data(response)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(data["data"]["detail"], "Successfully joined the project")
+        self.assertEqual(data["data"]["detail"], "Joined project successfully.")
         self.assertTrue(
             ProjectMember.objects.filter(
                 user=self.invitee, project=self.project
@@ -177,7 +177,7 @@ class ProjectAPITests(APITestCase):
         data = self.get_json_data(response)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(data["errors"]["detail"], "This invitation is not for you")
+        self.assertEqual(data["errors"]["detail"], "Forbidden or expired invitation.")
 
     def test_accept_expired_invitation_fails(self):
         """
@@ -196,9 +196,9 @@ class ProjectAPITests(APITestCase):
         response = self.client.post(url)
         data = self.get_json_data(response)
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(data["success"], False)
-        self.assertEqual(data["errors"]["detail"], "Invitation expired or already used")
+        self.assertEqual(data["errors"]["detail"], "Forbidden or expired invitation.")
 
     def test_non_admin_member_cannot_invite(self):
         """
@@ -224,7 +224,6 @@ class ProjectAPITests(APITestCase):
         payload = {"email": "newbie@test.com", "is_admin": False}
         response = self.client.post(url, payload)
         data = self.get_json_data(response)
-        print(data)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(data["success"], False)
         self.assertEqual(

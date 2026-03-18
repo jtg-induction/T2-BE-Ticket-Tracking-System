@@ -3,8 +3,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models import Q, UniqueConstraint
-from django.db.models.functions import Now
+from django.db.models import UniqueConstraint
 from django.utils import timezone
 
 from core.models import BaseModel, SoftDeleteManager
@@ -53,8 +52,13 @@ class ProjectMember(BaseModel):
         choices=MemberStatus.choices, default=MemberStatus.MEMBER, max_length=10
     )
 
-    class Meta:
-        unique_together = ("project", "user")
+    constraints = [
+        models.UniqueConstraint(
+            fields=["project", "user"],
+            name="unique_project_membership",
+            violation_error_message="User is already in this project.",
+        )
+    ]
 
 
 class ProjectModel(BaseModel):
@@ -149,8 +153,8 @@ class ProjectInvitation(BaseModel):
 
         constraints = [
             UniqueConstraint(
-                fields=["project", "invitee"],
-                condition=Q(is_accepted=False) & Q(expires_at__gt=Now()),
+                fields=["project", "invitee", "is_deleted"],
                 name="unique_active_invite_per_project_invitee",
+                violation_error_message="An active invitation already exists",
             )
         ]
