@@ -118,7 +118,7 @@ class LogoutView(APIView):
     View to handle log out by clearing the authentication cookie.
     """
 
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         """
