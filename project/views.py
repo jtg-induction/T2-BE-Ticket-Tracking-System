@@ -187,13 +187,6 @@ class ProjectInvitationView(viewsets.GenericViewSet):
 
         try:
             with transaction.atomic():
-                JiraProjectService.add_user_to_jira_project(
-                    user=invitation.invited_by,
-                    project=invitation.project,
-                    invitee=invitation.invitee,
-                    is_admin=invitation.is_admin,
-                )
-
                 ProjectMember.objects.update_or_create(
                     project=invitation.project,
                     user=invitation.invitee,
@@ -205,6 +198,13 @@ class ProjectInvitationView(viewsets.GenericViewSet):
 
                 invitation.is_accepted = True
                 invitation.save()
+
+                JiraProjectService.add_user_to_jira_project(
+                    user=invitation.invited_by,
+                    project=invitation.project,
+                    invitee=invitation.invitee,
+                    is_admin=invitation.is_admin,
+                )
 
             return Response({"detail": "Joined project successfully."})
         except Exception:
