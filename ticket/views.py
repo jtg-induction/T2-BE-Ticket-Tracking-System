@@ -7,6 +7,7 @@ from rest_framework.response import Response
 
 from core.renders import StandardizedJSONRenderer
 from core.services import JiraProjectService
+from core.utils import parse_jira_error
 from project.enums import MemberStatus
 from project.models import ProjectMember, ProjectModel
 
@@ -154,7 +155,8 @@ class JiraTicketViewSet(viewsets.GenericViewSet):
             )
 
         except Exception as e:
-            return Response({"error": str(e)}, status=400)
+            clear_error = parse_jira_error(e)
+            return Response({"error": clear_error}, status=400)
 
     @action(detail=False, methods=["post"], url_path="import")
     def import_to_local(self, request, project_pk=None):

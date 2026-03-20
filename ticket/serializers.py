@@ -1,9 +1,9 @@
 from django.contrib.auth import get_user_model
-from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 
 from core.services import JiraProjectService
+from core.utils import parse_jira_error
 from project.enums import MemberStatus
 from project.models import ProjectMember, ProjectModel
 from user.serializers import UserSerializer
@@ -130,37 +130,32 @@ class TicketSerializer(serializers.ModelSerializer):
         Creates a ticket locally after successfully creating it in Jira.
         """
 
-        with transaction.atomic():
-            user = self.context["request"].user
-            reporter = validated_data.get("reporter")
-            if not reporter:
-                reporter = user
-            validated_data["reporter"] = reporter
-            project = validated_data["project"]
-            deadline = validated_data.get("deadline")
-            formatted_deadline = deadline.strftime("%Y-%m-%d") if deadline else None
+        user = self.context["request"].user
+        reporter = validated_data.get("reporter")
+        if not reporter:
+            reporter = user
+        validated_data["reporter"] = reporter
+        project = validated_data["project"]
+        deadline = validated_data.get("deadline")
+        formatted_deadline = deadline.strftime("%Y-%m-%d") if deadline else None
 
-            try:
-                jira_response = JiraProjectService.create_jira_task(
-                    user=user,
-                    project_instance=project,
-                    summary=validated_data["name"],
-                    description=validated_data.get("description", ""),
-                    reporter_id=reporter.jira_id,
-                    category=validated_data["category"],
-                    priority=validated_data.get("priority", "Medium"),
-                    due_date=formatted_deadline,
-                )
+        try:
+            jira_response = JiraProjectService.create_jira_task(
+                user=user,
+                project_instance=project,
+                summary=validated_data["name"],
+                description=validated_data.get("description", ""),
+                reporter_id=reporter.jira_id,
+                category=validated_data["category"],
+                priority=validated_data.get("priority", "Medium"),
+                due_date=formatted_deadline,
+            )
+        except Exception as e:
+            clean_error = parse_jira_error(e)
+            raise serializers.ValidationError({"detail": clean_error})
 
-                validated_data["jira_id"] = jira_response.get("key")
-                return super().create(validated_data)
-
-            except Exception:
-                raise serializers.ValidationError(
-                    {
-                        "Jira synchronization failed. Ticket not created.",
-                    }
-                )
+        validated_data["jira_id"] = jira_response.get("key")
+        return super().create(validated_data)
 
     def update(self, instance, validated_data):
         """
@@ -168,34 +163,29 @@ class TicketSerializer(serializers.ModelSerializer):
 
         Tracks status transition metadata (who, when, and from what status).
         """
-        with transaction.atomic():
-            user = self.context["request"].user
-            new_status = validated_data.get("status")
+        user = self.context["request"].user
+        new_status = validated_data.get("status")
 
-            if new_status and new_status != instance.status:
-                validated_data["status_updated_from"] = instance.status
-                validated_data["status_updated_at"] = timezone.now()
-                validated_data["status_updated_by"] = user
+        if new_status and new_status != instance.status:
+            validated_data["status_updated_from"] = instance.status
+            validated_data["status_updated_at"] = timezone.now()
+            validated_data["status_updated_by"] = user
 
-                if new_status == Status.CLOSED:
-                    validated_data["completed_at"] = timezone.now()
+            if new_status == Status.CLOSED:
+                validated_data["completed_at"] = timezone.now()
 
-            validated_data["updated_by"] = user
+        validated_data["updated_by"] = user
 
-            instance = super().update(instance, validated_data)
-            try:
-                JiraProjectService.update_jira_task(
-                    user=user, ticket_instance=instance, validated_data=validated_data
-                )
+        try:
+            JiraProjectService.update_jira_task(
+                user=user, ticket_instance=instance, validated_data=validated_data
+            )
+        except Exception:
+            raise serializers.ValidationError(
+                "Jira synchronization failed. Local update aborted."
+            )
 
-                return instance
-
-            except Exception:
-                raise serializers.ValidationError(
-                    {
-                        "Jira synchronization failed. Local update aborted.",
-                    }
-                )
+        return super().update(instance, validated_data)
 
     def to_representation(self, instance):
         """
