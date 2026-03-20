@@ -20,9 +20,9 @@ def sync_comments_in_batches(ticket_id, user_id, project_id):
     of local CommentModel instances.
 
     Args:
-        ticket_id (int): The ID of the local Ticket instance.
-        user_id (int): The ID of the User whose Jira credentials will be used.
-        project_id (int): The ID of the Project containing the Jira site configuration.
+        ticket_id (uuid): The ID of the local Ticket instance.
+        user_id (uuid): The ID of the User whose Jira credentials will be used.
+        project_id (uuid): The ID of the Project containing the Jira site configuration.
 
     Logic:
         1. Iterates through Jira comments using `startAt` and `maxResults` pagination.
@@ -41,7 +41,10 @@ def sync_comments_in_batches(ticket_id, user_id, project_id):
         endpoint = f"/rest/api/3/issue/{ticket.jira_id}/comment?startAt={start_at}&maxResults={max_results}"
         response = client.get(endpoint)
         if response.status_code != 200:
-            break
+            raise RuntimeError(
+                f"Failed to sync Jira comments for ticket {ticket_id} "
+                f"at startAt={start_at}: status={response.status_code}"
+            )
 
         data = response.json()
         jira_comments = data.get("comments", [])

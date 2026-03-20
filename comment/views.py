@@ -1,10 +1,12 @@
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
-from rest_framework import viewsets
+from rest_framework import status, viewsets
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.response import Response
 
 from core.renders import StandardizedJSONRenderer
 from core.services import JiraProjectService
+from core.utils import parse_jira_error
 from project.enums import MemberStatus
 from ticket.models import Ticket
 
@@ -115,12 +117,13 @@ class CommentViewSet(viewsets.ModelViewSet):
                     raise Exception("Jira API returned a failure status.")
 
             except Exception as e:
-                from rest_framework import serializers
-
-                raise serializers.ValidationError(
-                    {
-                        "detail": f"Deletion failed: Could not sync with Jira. Error: {str(e)}"
-                    }
+                clean_error = parse_jira_error(e)
+                return Response(
+                    {"detail": clean_error}, status=status.HTTP_502_BAD_GATEWAY
                 )
 
         instance.delete()
+        return Response(
+            {"detail": "Comment deleted successfully locally and on Jira."},
+            status=status.HTTP_204_NO_CONTENT,
+        )

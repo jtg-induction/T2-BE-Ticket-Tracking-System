@@ -1,7 +1,7 @@
-from django.db import transaction
 from rest_framework import serializers
 
 from core.services import JiraProjectService
+from core.utils import parse_jira_error
 from user.serializers import UserSerializer
 
 from .models import CommentModel
@@ -51,6 +51,8 @@ class CommentSerializer(serializers.ModelSerializer):
             "ticket",
             "created_at",
             "is_project_archived",
+            "commentator",
+            "external_author_name",
         ]
 
     def get_can_edit(self, obj):
@@ -82,58 +84,40 @@ class CommentSerializer(serializers.ModelSerializer):
         """
         Create a local comment record and synchronize it with Jira.
 
-        Uses an atomic transaction to ensure that if the Jira API call fails,
+        Ensure that if the Jira API call fails,
         the local database record is not created.
         """
         user = self.context["request"].user
         ticket = validated_data.get("ticket")
         message = validated_data.get("message")
 
-        with transaction.atomic():
-            instance = super().create(validated_data)
-            try:
-                jira_id = JiraProjectService.add_comment_to_jira(
-                    user=user, ticket_instance=ticket, message=message
-                )
+        try:
+            jira_id = JiraProjectService.add_comment_to_jira(
+                user=user, ticket_instance=ticket, message=message
+            )
+        except Exception as e:
+            clean_error = parse_jira_error(e)
+            raise serializers.ValidationError({"detail": clean_error})
 
-                if not jira_id:
-                    raise Exception("Jira API returned no ID.")
-
-            except Exception as e:
-                raise serializers.ValidationError(
-                    {"detail": f"Jira Sync Failed: {str(e)}"}
-                )
-
-            instance.jira_id = jira_id
-            instance.save()
-
-            return instance
+        validated_data["jira_id"] = jira_id
+        return super().create(validated_data)
 
     def update(self, instance, validated_data):
         """
         Update an existing comment and sync the new message to Jira.
-
-        If the Jira update fails, the local database changes are rolled back
-        to prevent a state mismatch between systems.
         """
         user = self.context["request"].user
         new_message = validated_data.get("message", instance.message)
 
-        with transaction.atomic():
-            if instance.jira_id:
-                instance = super().update(instance, validated_data)
-                try:
-                    success = JiraProjectService.update_jira_comment(
-                        user=user,
-                        ticket_instance=instance.ticket,
-                        jira_comment_id=instance.jira_id,
-                        message=new_message,
-                    )
-                    if not success:
-                        raise Exception("Jira rejected the update.")
-                except Exception as e:
-                    raise serializers.ValidationError(
-                        {"detail": f"Failed to update Jira: {str(e)}"}
-                    )
+        try:
+            JiraProjectService.update_jira_comment(
+                user=user,
+                ticket_instance=instance.ticket,
+                jira_comment_id=instance.jira_id,
+                message=new_message,
+            )
+        except Exception as e:
+            clean_error = parse_jira_error(e)
+            raise serializers.ValidationError({"detail": clean_error})
 
-                return instance
+        return super().update(instance, validated_data)

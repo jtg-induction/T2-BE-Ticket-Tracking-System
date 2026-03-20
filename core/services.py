@@ -482,10 +482,15 @@ class JiraProjectService:
 
         if response.status_code == 201:
             return response.json().get("id")
-        return None
+
+        raise serializers.ValidationError(
+            f"Jira Task Field Update Failed: {response.text}"
+        )
 
     @classmethod
-    def update_jira_comment(cls, user, ticket_instance, jira_comment_id, message):
+    def update_jira_comment(
+        cls, user, ticket_instance, jira_comment_id, message
+    ) -> bool:
         client = cls._get_client(user, ticket_instance.project.site_url)
         payload = {"body": ADFConverter.to_adf(message)}
         endpoint = (
@@ -495,7 +500,7 @@ class JiraProjectService:
         return response.status_code in [200, 204]
 
     @classmethod
-    def delete_jira_comment(cls, user, ticket_instance, jira_comment_id):
+    def delete_jira_comment(cls, user, ticket_instance, jira_comment_id) -> bool:
         client = cls._get_client(user, ticket_instance.project.site_url)
         endpoint = (
             f"/rest/api/3/issue/{ticket_instance.jira_id}/comment/{jira_comment_id}"
@@ -504,7 +509,7 @@ class JiraProjectService:
         return response.status_code == 204
 
     @classmethod
-    def fetch_jira_comments(cls, user, project_instance, ticket_jira_id):
+    def fetch_jira_comments(cls, user, project_instance, ticket_jira_id) -> list:
         client = cls._get_client(user, project_instance.site_url)
         endpoint = f"/rest/api/3/issue/{ticket_jira_id}/comment"
         response = client.get(endpoint)

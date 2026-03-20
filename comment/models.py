@@ -13,13 +13,15 @@ class CommentModel(BaseModel):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    jira_id = models.CharField(null=True)
+    jira_id = models.CharField(default="", max_length=255, blank=True)
     message = models.TextField(max_length=10000)
     commentator = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
-        related_name="commentator",
+        related_name="comments",
         null=True,
     )
-    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name="comment")
-    external_author_name = models.CharField(max_length=255, null=True, blank=True)
+    ticket = models.ForeignKey(
+        Ticket, on_delete=models.CASCADE, related_name="comments"
+    )
+    external_author_name = models.CharField(max_length=255, default="", blank=True)
