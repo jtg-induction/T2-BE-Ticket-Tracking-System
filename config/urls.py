@@ -21,6 +21,7 @@ from django.urls import include, path
 api_urls = [
     path("", include("user.urls")),
     path("", include("project.urls")),
+    path("", include("ticket.urls")),
 ]
 
 urlpatterns = [

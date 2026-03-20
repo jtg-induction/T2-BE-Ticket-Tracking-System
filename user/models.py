@@ -77,7 +77,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin, BaseModel):
     """
 
     user_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    jira_id = models.TextField(unique=True, max_length=43)
+    jira_id = models.TextField(unique=True, max_length=50)
     jira_api_token = models.TextField(max_length=256)
     email = models.EmailField(unique=True)
     first_name = models.TextField(max_length=50)
