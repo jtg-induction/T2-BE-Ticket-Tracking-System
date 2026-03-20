@@ -7,11 +7,12 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from core.services import JiraProjectService
+from core.utils import parse_jira_error
 from project.models import ProjectMember
 from user.models import CustomUser
 
 from .enums import MemberStatus
-from .models import ProjectInvitation, ProjectMember, ProjectModel
+from .models import ProjectInvitation, ProjectModel
 from .tasks import send_invitation_email
 
 
@@ -137,23 +138,32 @@ class ProjectSerializer(serializers.ModelSerializer):
         Creates a local ProjectModel instance and its remote Jira counterpart.
         """
         user = self.context["request"].user
-        with transaction.atomic():
-            project = ProjectModel.objects.create_with_user(user=user, **validated_data)
+
+        try:
             jira_id = JiraProjectService.create_jira_project(user, validated_data)
-            project.jira_id = jira_id
-            project.save()
-            return project
+        except Exception as e:
+            clean_error = parse_jira_error(e)
+            raise serializers.ValidationError({"detail": clean_error})
+
+        with transaction.atomic():
+            validated_data["jira_id"] = jira_id
+            validated_data["owner_id"] = user.user_id
+            return super().create(validated_data)
 
     def update(self, instance, validated_data):
         """
         Updates the local project and triggers a remote update in Jira.
         """
         user = self.context["request"].user
-        with transaction.atomic():
-            validated_data["updated_by"] = user
-            instance = super().update(instance, validated_data)
+        validated_data["updated_by"] = user
+
+        try:
             JiraProjectService.update_jira_project(user, instance, validated_data)
-            return instance
+        except Exception as e:
+            clean_error = parse_jira_error(e)
+            raise serializers.ValidationError({"detial": clean_error})
+
+        return super().update(instance, validated_data)
 
 
 class InviteUserSerializer(serializers.Serializer):
@@ -189,7 +199,7 @@ class InviteUserSerializer(serializers.Serializer):
         except CustomUser.DoesNotExist:
             raise serializers.ValidationError(
                 {"email": "User with this email does not exist."}
-            )
+            ) from None
 
         if ProjectMember.objects.filter(project_id=project_id, user=invitee).exists():
             raise serializers.ValidationError(
@@ -230,8 +240,10 @@ class InviteUserSerializer(serializers.Serializer):
             invite_url = f"{settings.CLIENT_URL}/accept-invite/{invitation.token}"
 
             try:
-                send_invitation_email.delay(
-                    invitee.email, invitation.project.title, invite_url
+                transaction.on_commit(
+                    lambda: send_invitation_email.delay(
+                        invitation.invitee.email, invitation.project.title, invite_url
+                    )
                 )
             except Exception as err:
                 raise serializers.ValidationError(

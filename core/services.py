@@ -131,7 +131,7 @@ class JiraProjectService:
                     )
 
     @classmethod
-    def add_user_to_jira_project(cls, user, project, invitee, is_admin):
+    def add_user_to_jira_project(cls, user, project, invitee, is_admin) -> bool:
         """
         Synchronizes a project membership with Jira Cloud by assigning the
         invitee to a specific project role.

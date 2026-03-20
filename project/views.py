@@ -9,7 +9,7 @@ from rest_framework.response import Response
 
 from core.renders import StandardizedJSONRenderer
 from core.services import JiraProjectService
-from core.utils import StandardizedPagination
+from core.utils import StandardizedPagination, parse_jira_error
 
 from .enums import MemberStatus
 from .models import ProjectInvitation, ProjectMember, ProjectModel
@@ -98,7 +98,6 @@ class ProjectInvitationView(viewsets.GenericViewSet):
 
     permission_classes = [IsAuthenticated]
     serializer_class = InviteUserSerializer
-    queryset = ProjectModel.objects.all()
 
     def _is_admin(self, user, project):
         """
@@ -186,6 +185,20 @@ class ProjectInvitationView(viewsets.GenericViewSet):
             )
 
         try:
+            JiraProjectService.add_user_to_jira_project(
+                user=invitation.invited_by,
+                project=invitation.project,
+                invitee=invitation.invitee,
+                is_admin=invitation.is_admin,
+            )
+        except Exception as e:
+            clear_error = parse_jira_error(e)
+            return Response(
+                {"detail": clear_error},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        try:
             with transaction.atomic():
                 ProjectMember.objects.update_or_create(
                     project=invitation.project,
@@ -199,18 +212,11 @@ class ProjectInvitationView(viewsets.GenericViewSet):
                 invitation.is_accepted = True
                 invitation.save()
 
-                JiraProjectService.add_user_to_jira_project(
-                    user=invitation.invited_by,
-                    project=invitation.project,
-                    invitee=invitation.invitee,
-                    is_admin=invitation.is_admin,
-                )
-
             return Response({"detail": "Joined project successfully."})
-        except Exception:
+        except Exception as e:
             return Response(
-                {"detail": "Jira sync failed. Please contact support."},
-                status=status.HTTP_502_BAD_GATEWAY,
+                {"detail": f"{str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
     @action(detail=False, methods=["post"], url_path="reject/(?P<token>[^/.]+)")

@@ -2,6 +2,7 @@ import base64
 import binascii
 import hashlib
 import json
+import re
 
 from Crypto.Cipher import AES
 from django.conf import settings
@@ -84,3 +85,41 @@ class StandardizedPagination(PageNumberPagination):
                 "results": data,
             }
         )
+
+
+def parse_jira_error(e):
+    """
+    Handles DRF ErrorDetail lists and extracts clean Jira error strings.
+    """
+    if isinstance(e, list) and len(e) > 0:
+        e = e[0]
+
+    raw_text = str(e)
+
+    try:
+        json_match = re.search(r"\{.*\}", raw_text)
+
+        if json_match:
+            json_str = json_match.group()
+            json_str = json_str.replace("\\'", "'").replace('\\"', '"')
+
+            error_data = json.loads(json_str)
+
+            messages = []
+
+            field_errors = error_data.get("errors", {})
+            if isinstance(field_errors, dict):
+                messages.extend(field_errors.values())
+
+            general_messages = error_data.get("errorMessages", [])
+            if isinstance(general_messages, list):
+                messages.extend(general_messages)
+
+            if messages:
+                return " ".join(str(m) for m in messages)
+
+    except Exception:
+        pass
+
+    clean_fallback = re.sub(r"ErrorDetail\(string='|', code='.*'\)", "", raw_text)
+    return clean_fallback.strip("[]' ")

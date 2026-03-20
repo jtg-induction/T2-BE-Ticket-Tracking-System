@@ -1,3 +1,4 @@
+import socket
 from smtplib import SMTPException
 
 from celery import shared_task
@@ -6,7 +7,7 @@ from django.core.mail import send_mail
 
 
 @shared_task(
-    autoretry_for=(SMTPException,),
+    autoretry_for=(SMTPException, socket.timeout, OSError, ConnectionError),
     retry_backoff=True,
     retry_jitter=True,
     max_retries=5,

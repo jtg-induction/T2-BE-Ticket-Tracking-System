@@ -30,7 +30,7 @@ class JiraClient:
             }
         )
 
-    def _request(self, method, endpoint, data=None):
+    def _request(self, method, endpoint, data=None, params=None):
         """
         A private helper to handle common request logic.
         """
@@ -39,6 +39,7 @@ class JiraClient:
             method=method,
             url=url,
             json=data,
+            params=params,
             timeout=self.DEFAULT_TIMEOUT_SECONDS,
         )
 
@@ -68,7 +69,7 @@ class JiraClient:
         """
         return self._request("PUT", endpoint, data)
 
-    def get(self, endpoint, params):
+    def get(self, endpoint, params=None):
         """
         Performs an authenticated GET request to a Jira API endpoint.
 

@@ -1,9 +1,10 @@
 import secrets
 import uuid
+from datetime import timedelta
 
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models import UniqueConstraint
+from django.db.models import Q, UniqueConstraint
 from django.utils import timezone
 
 from core.models import BaseModel, SoftDeleteManager
@@ -52,13 +53,14 @@ class ProjectMember(BaseModel):
         choices=MemberStatus.choices, default=MemberStatus.MEMBER, max_length=10
     )
 
-    constraints = [
-        models.UniqueConstraint(
-            fields=["project", "user"],
-            name="unique_project_membership",
-            violation_error_message="User is already in this project.",
-        )
-    ]
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "user"],
+                name="unique_project_membership",
+                violation_error_message="User is already in this project.",
+            )
+        ]
 
 
 class ProjectModel(BaseModel):
@@ -132,7 +134,7 @@ class ProjectInvitation(BaseModel):
         if not self.token:
             self.token = secrets.token_urlsafe(32)
         if not self.expires_at:
-            self.expires_at = timezone.now() + timezone.timedelta(days=7)
+            self.expires_at = timezone.now() + timedelta(days=7)
         super().save(*args, **kwargs)
 
     @property
@@ -154,6 +156,7 @@ class ProjectInvitation(BaseModel):
         constraints = [
             UniqueConstraint(
                 fields=["project", "invitee", "is_deleted"],
+                condition=Q(is_deleted=False),
                 name="unique_active_invite_per_project_invitee",
                 violation_error_message="An active invitation already exists",
             )

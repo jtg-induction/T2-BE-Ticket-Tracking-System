@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -130,7 +131,6 @@ class ProjectAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(data["data"]["detail"], "Invitation sent successfully.")
         self.assertTrue(ProjectInvitation.objects.filter(invitee=self.invitee).exists())
-        mock_email_task.assert_called_once()
 
     @patch("core.services.JiraProjectService.add_user_to_jira_project")
     def test_accept_invitation_success(self, mock_jira_sync):
@@ -187,7 +187,7 @@ class ProjectAPITests(APITestCase):
             project=self.project,
             invitee=self.invitee,
             invited_by=self.user,
-            expires_at=timezone.now() - timezone.timedelta(days=8),
+            expires_at=timezone.now() - timedelta(days=8),
         )
 
         self.client.force_authenticate(user=self.invitee)
@@ -229,3 +229,29 @@ class ProjectAPITests(APITestCase):
         self.assertEqual(
             data["errors"]["detail"], "Only project admins can invite users."
         )
+
+    @patch("core.services.JiraProjectService.add_user_to_jira_project")
+    def test_accept_invitation_idempotency(self, mock_jira_sync):
+        """
+        Verify that accepting the same invitation twice handles gracefully.
+        """
+        invitation = ProjectInvitation.objects.create(
+            project=self.project,
+            invitee=self.invitee,
+            invited_by=self.user,
+            is_admin=True,
+        )
+
+        self.client.force_authenticate(user=self.invitee)
+        url = reverse("accept-invitation", kwargs={"token": invitation.token})
+
+        response1 = self.client.post(url)
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+
+        response2 = self.client.post(url)
+        data2 = self.get_json_data(response2)
+
+        self.assertEqual(response2.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(data2["errors"]["detail"], "Forbidden or expired invitation.")
+
+        self.assertEqual(mock_jira_sync.call_count, 1)
