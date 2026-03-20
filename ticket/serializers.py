@@ -239,7 +239,7 @@ class TicketSerializer(serializers.ModelSerializer):
             clean_error = parse_jira_error(e)
             raise serializers.ValidationError({"detail": clean_error})
 
-        with transaction.on_commit():
+        with transaction.atomic():
             for attr, value in validated_data.items():
                 setattr(instance, attr, value)
             instance.save()
