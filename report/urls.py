@@ -1,16 +1,8 @@
 from django.urls import path
 
-from .views import DownloadReportPDFView, TicketReportView
+from report.views import DownloadReportPDFView, TicketReportView
 
 urlpatterns = [
-    path(
-        "report/",
-        TicketReportView.as_view(),
-        name="generate-report",
-    ),
-    path(
-        "report/download/",
-        DownloadReportPDFView.as_view(),
-        name="download-report",
-    ),
+    path("", TicketReportView.as_view(), name="generate-report"),
+    path("download/", DownloadReportPDFView.as_view(), name="download-report"),
 ]

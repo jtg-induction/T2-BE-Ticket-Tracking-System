@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ProjectInvitation, ProjectMember, ProjectModel
+from project.models import ProjectInvitation, ProjectMember, ProjectModel
 
 
 @admin.register(ProjectModel)

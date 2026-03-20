@@ -5,8 +5,7 @@ from django.db import models
 
 from core.models import BaseModel
 from project.models import ProjectModel
-
-from .enums import Category, Priority, Status
+from ticket.enums import Category, Priority, Status
 
 
 class Ticket(BaseModel):

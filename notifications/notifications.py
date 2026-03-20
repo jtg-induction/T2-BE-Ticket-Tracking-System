@@ -1,10 +1,10 @@
-from datetime import timedelta, timezone
+from datetime import timedelta
 
 from django.core.mail import send_mail
+from django.utils import timezone
 
+from notifications.models import Notifications
 from ticket.models import Ticket
-
-from .models import Notifications
 
 
 class TicketNotification:
@@ -12,7 +12,7 @@ class TicketNotification:
     def send_status_change(ticket_id):
         ticket = Ticket.objects.get(pk=ticket_id)
         subscribers = Notifications.objects.filter(ticket=ticket).values_list(
-            "user__email", flat=True
+            "subscriber__email", flat=True
         )
 
         send_mail(
@@ -37,7 +37,7 @@ class TicketNotification:
     def send_deadline_reminder(ticket_id):
         ticket = Ticket.objects.get(pk=ticket_id)
         subscribers = Notifications.objects.filter(ticket=ticket).values_list(
-            "user__email", flat=True
+            "subscriber__email", flat=True
         )
 
         send_mail(

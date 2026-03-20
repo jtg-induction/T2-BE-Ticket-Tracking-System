@@ -17,6 +17,7 @@ requests = "==2.32.5"
 celery = "==5.6.2"
 redis = "==5.2.1"
 reportlab = "==4.4.10"
+django-dynamic-fixture = "*"
 
 [dev-packages]
 pytest-cov = "==7.0.0"

@@ -1,10 +1,11 @@
+import base64
+
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from core.utils import encrypt_token
-
-from .models import CustomUser
-from .utils import verify_signup_jwt
+from user.models import CustomUser
+from user.utils import verify_signup_jwt
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -179,6 +180,14 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         Returns:
             dict: The standard response data (access/refresh) plus a 'user' object.
         """
+        password = attrs.get("password")
+        if password:
+            try:
+                decoded_password = base64.b64decode(password).decode("utf-8")
+                attrs["password"] = decoded_password
+
+            except Exception:
+                raise serializers.ValidationError({"password": "Invalid password"})
 
         data = super().validate(attrs)
         data["user"] = {

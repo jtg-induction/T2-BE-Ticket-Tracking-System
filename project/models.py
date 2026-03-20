@@ -8,8 +8,7 @@ from django.db.models import Q, UniqueConstraint
 from django.utils import timezone
 
 from core.models import BaseModel, SoftDeleteManager
-
-from .enums import MemberStatus
+from project.enums import MemberStatus
 
 
 class ProjectManager(SoftDeleteManager):

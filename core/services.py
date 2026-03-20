@@ -1,14 +1,54 @@
 from rest_framework import serializers
 
-from .constants import ASSIGNEE_TYPE_LEAD, DEFAULT_PROJECT_TYPE, KANBAN_TEMPLATE
-from .jiraclient import JiraClient
-from .utils import ADFConverter
+from core.constants import ASSIGNEE_TYPE_LEAD, DEFAULT_PROJECT_TYPE, KANBAN_TEMPLATE
+from core.exceptions import (
+    JiraAuthenticationError,
+    JiraBaseException,
+    JiraConnectionError,
+    JiraValidationError,
+)
+from core.jiraclient import JiraClient
+from core.utils import ADFConverter
 
 
 class JiraProjectService:
     """
     Service layer for coordinating  jira-related operations with the Jira Cloud API.
     """
+
+    @classmethod
+    def _handle_response(cls, response, context_message):
+        """
+        Internal helper to evaluate Jira responses and raise specific exceptions.
+        """
+        if response.status_code in [200, 201, 204]:
+            return response
+
+        error_detail = response.text
+
+        try:
+            data = response.json()
+            if data.get("errorMessages"):
+                error_detail = " ".join(data["errorMessages"])
+            elif data.get("errors") and isinstance(data["errors"], dict):
+                error_detail = ", ".join(
+                    [f"{k}: {v}" for k, v in data["errors"].items()]
+                )
+            elif data.get("message"):
+                error_detail = data["message"]
+        except (ValueError, AttributeError):
+            error_detail = response.text[:200]
+
+        full_msg = f"{context_message}: {error_detail}"
+
+        if response.status_code == 400:
+            raise JiraValidationError(full_msg)
+        elif response.status_code in [401, 403]:
+            raise JiraAuthenticationError(full_msg)
+        elif response.status_code >= 500:
+            raise JiraConnectionError(full_msg)
+
+        raise JiraBaseException(full_msg)
 
     @classmethod
     def _get_client(cls, user, site_url):
@@ -22,7 +62,10 @@ class JiraProjectService:
         Returns:
             JiraClient: An authenticated instance of the Jira client.
         """
-        return JiraClient(site_url, user.email, user.get_decrypted_jira_token())
+        try:
+            return JiraClient(site_url, user.email, user.get_decrypted_jira_token())
+        except Exception as e:
+            raise JiraAuthenticationError(f"Failed to initialize Jira Client: {str(e)}")
 
     @classmethod
     def _get_role_id_by_name(cls, client, project_id, role_name):
@@ -39,23 +82,17 @@ class JiraProjectService:
         """
 
         response = client.get(f"/rest/api/3/project/{project_id}/role")
-
-        if response.status_code != 200:
-            raise serializers.ValidationError(
-                f"Could not fetch Jira roles: {response.text}"
-            )
+        cls._handle_response(response, f"Fetching role '{role_name}'")
 
         roles = response.json()
         role_url = roles.get(role_name)
 
         if not role_url:
-            raise serializers.ValidationError(f"Jira role '{role_name}' not found.")
-        try:
-            return role_url.split("/")[-1]
-        except (AttributeError, IndexError, ValueError):
             raise serializers.ValidationError(
-                f"Jira returned an invalid URL format for role '{role_name}'."
+                f"Jira role '{role_name}' not found in project."
             )
+
+        return role_url.split("/")[-1]
 
     @classmethod
     def create_jira_project(cls, user, project_data):
@@ -71,7 +108,6 @@ class JiraProjectService:
             str: The unique Jira project ID returned by Atlassian on success.
         """
         client = cls._get_client(user, project_data["site_url"])
-
         payload = {
             "key": project_data["jira_project_key"],
             "name": project_data["title"],
@@ -83,13 +119,8 @@ class JiraProjectService:
         }
 
         response = client.post("/rest/api/3/project", payload)
-
-        if response.status_code == 201:
-            return response.json().get("id")
-
-        raise serializers.ValidationError(
-            f"Jira project creation Failed: {response.text}"
-        )
+        cls._handle_response(response, "Jira project creation")
+        return response.json().get("id")
 
     @classmethod
     def update_jira_project(cls, user, instance, validated_data):
@@ -114,23 +145,14 @@ class JiraProjectService:
             }
             endpoint = f"/rest/api/3/project/{project_id}"
             response = client.put(endpoint, payload)
-            if response.status_code not in (200, 204):
-                raise serializers.ValidationError(
-                    f"Jira Details Update Failed: {response.text}"
-                )
+            cls._handle_response(response, "Jira Details Update")
 
         if "is_archived" in validated_data:
             should_archive = validated_data["is_archived"]
             action = "archive" if should_archive else "restore"
             archive_endpoint = f"/rest/api/3/project/{project_id}/{action}"
-
             archive_res = client.post(archive_endpoint, data={})
-
-            if archive_res.status_code not in [200, 204]:
-                if archive_res.status_code != 403:
-                    raise serializers.ValidationError(
-                        f"Jira {action} Failed: {archive_res.text}"
-                    )
+            cls._handle_response(archive_res, f"Jira Project {action.capitalize()}")
 
     @classmethod
     def add_user_to_jira_project(cls, user, project, invitee, is_admin) -> bool:
@@ -150,20 +172,12 @@ class JiraProjectService:
         """
 
         client = cls._get_client(user, project.site_url)
-
         target_role_name = "Administrator" if is_admin else "Member"
-
         role_id = cls._get_role_id_by_name(client, project.jira_id, target_role_name)
-
         endpoint = f"/rest/api/3/project/{project.jira_id}/role/{role_id}"
-
         payload = {"user": [invitee.jira_id]}
-
         response = client.post(endpoint, payload)
-
-        if response.status_code not in [200, 201]:
-            raise serializers.ValidationError(f"{response.text}")
-
+        cls._handle_response(response, f"Adding user to {target_role_name} role")
         return True
 
     @classmethod
@@ -192,15 +206,11 @@ class JiraProjectService:
             params = {"user": target_user.jira_id}
             response = client.delete(endpoint, params=params)
 
-            if response.status_code not in [200, 204, 404]:
-                raise serializers.ValidationError(
-                    f"Jira Role Clear Failed: {response.text}"
-                )
+            if response.status_code != 404:
+                cls._handle_response(response, "Clearing old Jira role")
 
         is_admin = new_role in ["admin", "owner"]
-        return JiraProjectService.add_user_to_jira_project(
-            user, project, target_user, is_admin
-        )
+        return cls.add_user_to_jira_project(user, project, target_user, is_admin)
 
     @classmethod
     def remove_user_from_jira_project(cls, user, project, target_user):
@@ -228,10 +238,9 @@ class JiraProjectService:
             params = {"user": target_user.jira_id}
             response = client.delete(endpoint, params=params)
 
-            if response.status_code not in [200, 204, 404]:
-                raise serializers.ValidationError(
-                    f"Jira Removal Failed: {response.text}"
-                )
+            if response.status_code != 404:
+                cls._handle_response(response, f"Jira Removal (Role: {role_id})")
+
         return True
 
     @classmethod
@@ -245,6 +254,7 @@ class JiraProjectService:
         category,
         priority="Medium",
         due_date=None,
+        status_name=None,
     ):
         """
         Creates a new issue in Jira Cloud.
@@ -262,8 +272,6 @@ class JiraProjectService:
         Returns:
             dict: The JSON response from Jira containing the new issue key and ID.
 
-        Raises:
-            serializers.ValidationError: If Jira returns a non-201 status code.
         """
         client = cls._get_client(user, project_instance.site_url)
         description_adf = {
@@ -292,12 +300,38 @@ class JiraProjectService:
             payload["fields"]["duedate"] = due_date
 
         response = client.post("/rest/api/3/issue", payload)
-        if response.status_code == 201:
-            return response.json()
-        raise serializers.ValidationError(f"Jira Task Creation Failed: {response.text}")
+        cls._handle_response(response, "Jira Task Creation")
+        jira_data = response.json()
+        jira_id = jira_data.get("key")
 
-    @staticmethod
-    def _get_available_transitions(client, jira_id):
+        if status_name and status_name.lower() != "to do":
+            search_status = (
+                "done" if status_name.lower() == "closed" else status_name.lower()
+            )
+
+            transitions = cls._get_available_transitions(client, jira_id)
+            transition_id = next(
+                (
+                    t["id"]
+                    for t in transitions
+                    if t["to"]["name"].lower() == search_status
+                ),
+                None,
+            )
+
+            if transition_id:
+                transition_payload = {"transition": {"id": transition_id}}
+                trans_res = client.post(
+                    f"/rest/api/3/issue/{jira_id}/transitions", transition_payload
+                )
+                cls._handle_response(
+                    trans_res, f"Initial Jira Status Transition to '{status_name}'"
+                )
+
+        return jira_data
+
+    @classmethod
+    def _get_available_transitions(cls, client, jira_id):
         """
         Retrieves the valid workflow transitions for a specific Jira issue.
 
@@ -313,9 +347,9 @@ class JiraProjectService:
         """
         endpoint = f"/rest/api/3/issue/{jira_id}/transitions"
         response = client.get(endpoint)
-        if response.status_code == 200:
-            return response.json().get("transitions", [])
-        return []
+        cls._handle_response(response, f"Fetching transitions for {jira_id}")
+
+        return response.json().get("transitions", [])
 
     @classmethod
     def update_jira_task(cls, user, ticket_instance, validated_data):
@@ -362,10 +396,9 @@ class JiraProjectService:
                     f"/rest/api/3/issue/{jira_id}/transitions", transition_payload
                 )
 
-                if trans_response.status_code not in [200, 204]:
-                    raise serializers.ValidationError(
-                        f"Jira Status Transition Failed: {trans_response.text}"
-                    )
+                cls._handle_response(
+                    trans_response, f"Jira Status Transition to '{search_status}'"
+                )
             else:
                 allowed_statuses = [t["to"]["name"] for t in transitions]
                 raise serializers.ValidationError(
@@ -403,16 +436,17 @@ class JiraProjectService:
             fields["labels"] = [validated_data["category"]]
 
         if "assignee" in validated_data:
-            fields["assignee"] = {"id": validated_data["assignee"].jira_id}
+            assignee_obj = validated_data.get("assignee")
+            if assignee_obj:
+                fields["assignee"] = {"id": assignee_obj.jira_id}
+            else:
+                fields["assignee"] = None
 
         if fields:
             endpoint = f"/rest/api/3/issue/{jira_id}"
             response = client.put(endpoint, {"fields": fields})
 
-            if response.status_code not in [200, 204]:
-                raise serializers.ValidationError(
-                    f"Jira Task Field Update Failed: {response.text}"
-                )
+            cls._handle_response(response, "Jira Task Field Update")
 
         return True
 
@@ -461,17 +495,14 @@ class JiraProjectService:
 
         response = client.post("/rest/api/3/search/jql", payload)
 
-        if response.status_code == 200:
-            data = response.json()
-            return {
-                "issues": data.get("issues", []),
-                "next_page_token": data.get("nextPageToken"),
-                "total": data.get("total", 0),
-            }
+        cls._handle_response(response, "Jira JQL Search")
 
-        raise serializers.ValidationError(
-            {"jql": f"Jira JQL Search Failed: {response.text}"}
-        )
+        data = response.json()
+        return {
+            "issues": data.get("issues", []),
+            "next_page_token": data.get("nextPageToken"),
+            "total": data.get("total", 0),
+        }
 
     @classmethod
     def add_comment_to_jira(cls, user, ticket_instance, message):
@@ -480,12 +511,8 @@ class JiraProjectService:
         endpoint = f"/rest/api/3/issue/{ticket_instance.jira_id}/comment"
         response = client.post(endpoint, payload)
 
-        if response.status_code == 201:
-            return response.json().get("id")
-
-        raise serializers.ValidationError(
-            f"Jira Task Field Update Failed: {response.text}"
-        )
+        cls._handle_response(response, "Adding Jira Comment")
+        return response.json().get("id")
 
     @classmethod
     def update_jira_comment(
@@ -497,7 +524,8 @@ class JiraProjectService:
             f"/rest/api/3/issue/{ticket_instance.jira_id}/comment/{jira_comment_id}"
         )
         response = client.put(endpoint, payload)
-        return response.status_code in [200, 204]
+        cls._handle_response(response, "Updating Jira Comment")
+        return True
 
     @classmethod
     def delete_jira_comment(cls, user, ticket_instance, jira_comment_id) -> bool:
@@ -506,7 +534,8 @@ class JiraProjectService:
             f"/rest/api/3/issue/{ticket_instance.jira_id}/comment/{jira_comment_id}"
         )
         response = client.delete(endpoint)
-        return response.status_code == 204
+        cls._handle_response(response, "Deleting Jira Comment")
+        return True
 
     @classmethod
     def fetch_jira_comments(cls, user, project_instance, ticket_jira_id) -> list:
@@ -514,6 +543,5 @@ class JiraProjectService:
         endpoint = f"/rest/api/3/issue/{ticket_jira_id}/comment"
         response = client.get(endpoint)
 
-        if response.status_code == 200:
-            return response.json().get("comments", [])
-        return []
+        cls._handle_response(response, "Fetching Jira Comments")
+        return response.json().get("comments", [])

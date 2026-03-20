@@ -67,8 +67,7 @@ class ReportSerializer(serializers.Serializer):
             if project_id:
                 project = ProjectModel.objects.get(id=project_id)
                 is_admin = (
-                    user.is_staff
-                    or project.owner == user
+                    project.owner == user
                     or ProjectMember.objects.filter(
                         project=project,
                         user=user,
@@ -153,6 +152,8 @@ class ReportSerializer(serializers.Serializer):
         project_id = params.get("project")
         user_id = params.get("user")
         user_ids_str = params.get("users")
+        start_date = params.get("start_date")
+        end_date = params.get("end_date")
 
         queryset = Ticket.objects.all()
         if project_id:
@@ -161,6 +162,10 @@ class ReportSerializer(serializers.Serializer):
         if user_ids_str:
             ids = [uid.strip() for uid in user_ids_str.split(",") if uid.strip()]
             queryset = queryset.filter(assignee_id__in=ids)
+        if start_date:
+            queryset = queryset.filter(deadline__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(deadline__lte=end_date)
         elif user_id:
             queryset = queryset.filter(assignee_id=user_id)
         elif not project_id:

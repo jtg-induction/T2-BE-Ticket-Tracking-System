@@ -1,10 +1,9 @@
 from rest_framework import status, viewsets
 from rest_framework.response import Response
 
+from notifications.models import Notifications
+from notifications.serializers import SubscriptionSerializer
 from ticket.models import Ticket
-
-from .models import Notifications
-from .serializers import SubscriptionSerializer
 
 
 class TicketViewSet(viewsets.ModelViewSet):

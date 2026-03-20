@@ -4,8 +4,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .pdf_generator import TicketReportPDF
-from .serializers import ReportSerializer
+from report.pdf_generator import TicketReportPDF
+from report.serializers import ReportSerializer
 
 
 class TicketReportView(APIView):

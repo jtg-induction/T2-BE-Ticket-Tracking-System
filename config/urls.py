@@ -20,11 +20,11 @@ from django.urls import include, path
 
 api_urls = [
     path("", include("user.urls")),
-    path("", include("project.urls")),
+    path("project/", include("project.urls")),
     path("", include("ticket.urls")),
     path("", include("comment.urls")),
     path("", include("notifications.urls")),
-    path("", include("report.urls")),
+    path("report/", include("report.urls")),
 ]
 
 urlpatterns = [

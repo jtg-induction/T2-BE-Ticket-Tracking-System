@@ -1,5 +1,5 @@
 from django.conf import settings
-from rest_framework import mixins, permissions, status, viewsets
+from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.generics import GenericAPIView
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
@@ -7,16 +7,16 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from .models import CustomUser
-from .serializers import (
+from user.models import CustomUser
+from user.serializers import (
     CustomTokenObtainPairSerializer,
     SignupLinkRequestSerializer,
     UserSerializer,
 )
-from .utils import (
+from user.tasks import send_registration_email_task
+from user.utils import (
     clear_auth_cookie,
     generate_signup_jwt,
-    send_registration_email,
     set_auth_cookie,
 )
 
@@ -91,6 +91,8 @@ class CustomLoginView(TokenObtainPairView):
     """
     View to handle user login and JWT issuance.
     """
+
+    serializer_class = CustomTokenObtainPairSerializer
 
     def post(self, request, *args, **kwargs):
         """
@@ -197,13 +199,22 @@ class RequestSignupLinkView(GenericAPIView):
             Response: Success message or 500 status if email delivery fails.
         """
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as e:
+            error_message = e.detail.get("email")[0]
+
+            return Response(
+                {"email": [error_message], "detail": "Signup request failed"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         email = serializer.validated_data["email"]
         token = generate_signup_jwt(email)
         signup_url = f"{settings.CLIENT_URL}/register?token={token}"
 
         try:
-            send_registration_email(email, signup_url)
+            send_registration_email_task.delay(email, signup_url)
         except Exception:
             return Response(
                 {"message": "Failed to send email: Some error occured"},
