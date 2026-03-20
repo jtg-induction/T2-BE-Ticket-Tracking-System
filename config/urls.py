@@ -24,6 +24,7 @@ api_urls = [
     path("", include("ticket.urls")),
     path("", include("comment.urls")),
     path("", include("notifications.urls")),
+    path("", include("report.urls")),
 ]
 
 urlpatterns = [

@@ -1,0 +1,49 @@
+{
+  "type": "doc",
+  "version": 1,
+  "content": [
+    {
+      "type": "mediaSingle",
+      "attrs": {
+        "width": 465,
+        "widthType": "pixel",
+        "layout": "align-start"
+      },
+      "content": [
+        {
+          "type": "media",
+          "attrs": {
+            "type": "file",
+            "id": "e853ca86-6cbb-45d1-ac29-39fa9806da54",
+            "alt": "Screenshot from 2026-01-05 05-47-16.png",
+            "collection": "",
+            "height": 47,
+            "width": 465
+          }
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Hey this is a comment "
+        },
+        {
+          "type": "mention",
+          "attrs": {
+            "id": "712020:5238c591-498e-4e64-886a-69333a16c558",
+            "text": "@Amit Kumar Patel",
+            "accessLevel": "",
+            "localId": "0f47210b-dd90-4d83-9a3c-9f8dfef76874"
+          }
+        },
+        {
+          "type": "text",
+          "text": " "
+        }
+      ]
+    }
+  ]
+}
