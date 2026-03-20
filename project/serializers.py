@@ -147,8 +147,8 @@ class ProjectSerializer(serializers.ModelSerializer):
 
         with transaction.atomic():
             validated_data["jira_id"] = jira_id
-            validated_data["owner_id"] = user.user_id
-            return super().create(validated_data)
+            project = ProjectModel.objects.create_with_user(user=user, **validated_data)
+            return project
 
     def update(self, instance, validated_data):
         """

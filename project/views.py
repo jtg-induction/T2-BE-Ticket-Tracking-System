@@ -334,6 +334,20 @@ class ProjectMemberViewSet(viewsets.GenericViewSet):
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
+            try:
+                JiraProjectService.update_user_role_in_jira(
+                    user=current_user,
+                    project=project,
+                    target_user=target_member.user,
+                    new_role=new_role,
+                )
+            except Exception as e:
+                clean_error = parse_jira_error(e)
+                return Response(
+                    {"detail": clean_error},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             with transaction.atomic():
                 ProjectMember.objects.filter(project=project, user=current_user).update(
                     is_admin=True
@@ -342,19 +356,6 @@ class ProjectMemberViewSet(viewsets.GenericViewSet):
                 project.save()
                 target_member.is_admin = True
                 target_member.save()
-
-                try:
-                    JiraProjectService.update_user_role_in_jira(
-                        user=current_user,
-                        project=project,
-                        target_user=target_member.user,
-                        new_role=new_role,
-                    )
-                except Exception as e:
-                    return Response(
-                        {"detail": f"{str(e)}"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
 
             return Response({"detail": "Ownership transferred successfully."})
 
@@ -374,22 +375,23 @@ class ProjectMemberViewSet(viewsets.GenericViewSet):
                     )
                 is_admin_val = False
 
+            try:
+                JiraProjectService.update_user_role_in_jira(
+                    user=current_user,
+                    project=project,
+                    target_user=target_member.user,
+                    new_role=new_role,
+                )
+            except Exception as e:
+                clean_error = parse_jira_error(e)
+                return Response(
+                    {"detail": clean_error},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             with transaction.atomic():
                 target_member.is_admin = is_admin_val
                 target_member.save()
-
-                try:
-                    JiraProjectService.update_user_role_in_jira(
-                        user=current_user,
-                        project=project,
-                        target_user=target_member.user,
-                        new_role=new_role,
-                    )
-                except Exception as e:
-                    return Response(
-                        {"detail": f"{str(e)}"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
 
             return Response({"detail": f"Role updated to {new_role}."})
 
