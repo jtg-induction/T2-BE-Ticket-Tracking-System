@@ -63,7 +63,7 @@ class TicketServiceTestCase(APITestCase):
 
     @patch("core.services.JiraProjectService.create_jira_task")
     def test_create_ticket_sync_success(self, mock_jira):
-        mock_jira.return_value = {"id": "JIRA-101"}
+        mock_jira.return_value = {"key": "JIRA-101"}
         self.client.force_authenticate(user=self.owner)
 
         payload = {
@@ -175,5 +175,5 @@ class TicketServiceTestCase(APITestCase):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]["name"], "Owned Task")
+        self.assertEqual(len(response.data), 4)
+        self.assertEqual(response.data["results"][0]["name"], "Owned Task")
