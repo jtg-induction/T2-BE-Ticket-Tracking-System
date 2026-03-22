@@ -118,7 +118,7 @@ class LogoutView(APIView):
     View to handle log out by clearing the authentication cookie.
     """
 
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         """
@@ -200,7 +200,7 @@ class RequestSignupLinkView(GenericAPIView):
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
         token = generate_signup_jwt(email)
-        signup_url = f"{settings.SIGNUP_URL}?token={token}"
+        signup_url = f"{settings.CLIENT_URL}/register?token={token}"
 
         try:
             send_registration_email(email, signup_url)
