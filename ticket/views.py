@@ -1,4 +1,4 @@
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from core.renders import StandardizedJSONRenderer
 from core.services import JiraProjectService
 from core.utils import parse_jira_error
+from notifications.models import Notifications
 from project.enums import MemberStatus
 from project.models import ProjectMember, ProjectModel
 
@@ -34,6 +35,16 @@ class TicketViewSet(viewsets.ModelViewSet):
     pagination_class = TicketPagination
     renderer_classes = [StandardizedJSONRenderer]
 
+    def _get_annotated_queryset(self, base_queryset):
+        """Helper to avoid repeating annotation logic"""
+        user = self.request.user
+
+        subscription_subquery = Notifications.objects.filter(
+            ticket=OuterRef("pk"), subscriber=user, is_deleted=False
+        )
+
+        return base_queryset.annotate(is_subscribed=Exists(subscription_subquery))
+
     def get_queryset(self):
         """
         Retrieves the list of tickets for a specific project.
@@ -47,6 +58,8 @@ class TicketViewSet(viewsets.ModelViewSet):
         queryset = Ticket.objects.filter(
             project_id=self.kwargs["project_pk"], is_deleted=False
         ).select_related("reporter", "assignee", "project", "project__owner")
+
+        queryset = self._get_annotated_queryset(queryset)
 
         status = self.request.query_params.get("status")
 
@@ -91,6 +104,8 @@ class TicketViewSet(viewsets.ModelViewSet):
         queryset = Ticket.objects.select_related(
             "reporter", "assignee", "project"
         ).filter(Q(assignee=request.user) | Q(reporter=request.user))
+
+        queryset = self._get_annotated_queryset(queryset)
 
         status = self.request.query_params.get("status")
 

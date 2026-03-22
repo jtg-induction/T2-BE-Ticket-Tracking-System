@@ -10,20 +10,24 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('comment', '0001_initial'),
+        ('notifications', '0001_initial'),
         ('ticket', '0001_initial'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='commentmodel',
+            model_name='notifications',
             name='ticket',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='comments', to='ticket.ticket'),
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='notifications', to='ticket.ticket'),
         ),
         migrations.AddField(
-            model_name='commentmodel',
+            model_name='notifications',
             name='updated_by',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='updated_%(class)s_set', to=settings.AUTH_USER_MODEL),
+        ),
+        migrations.AddConstraint(
+            model_name='notifications',
+            constraint=models.UniqueConstraint(condition=models.Q(('is_deleted', False)), fields=('ticket', 'subscriber', 'is_deleted'), name='uniq_active_ticket_subscription'),
         ),
     ]

@@ -7,4 +7,4 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notifications
         fields = ["id", "ticket", "subscriber", "created_at"]
-        read_only_fields = ["subscriber"]
+        read_only_fields = ["id", "ticket", "subscriber", "created_at"]

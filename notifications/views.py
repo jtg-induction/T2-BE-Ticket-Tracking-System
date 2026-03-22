@@ -1,6 +1,8 @@
+from django.db.models import Q
 from rest_framework import status, viewsets
 from rest_framework.response import Response
 
+from project.enums import MemberStatus
 from ticket.models import Ticket
 
 from .models import Notifications
@@ -11,6 +13,21 @@ class TicketViewSet(viewsets.ModelViewSet):
     queryset = Ticket.objects.all()
     serializer_class = SubscriptionSerializer
     lookup_url_kwarg = "ticket_id"
+
+    def get_queryset(self):
+        """
+        Restrict tickets to only those where the user is a project member,
+        the reporter, or the assignee.
+        """
+        user = self.request.user
+        return Ticket.objects.filter(
+            Q(
+                project__memberships__user=user,
+                project__memberships__status=MemberStatus.MEMBER,
+            )
+            | Q(reporter=user)
+            | Q(assignee=user)
+        ).distinct()
 
     def subscribe(self, request, ticket_id=None):
         ticket = self.get_object()
@@ -24,8 +41,10 @@ class TicketViewSet(viewsets.ModelViewSet):
                 {"detail": "Already subscribed."}, status=status.HTTP_400_BAD_REQUEST
             )
 
+        status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+
         serializer = self.get_serializer(obj)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.data, status=status_code)
 
     def unsubscribe(self, request, ticket_id=None):
         ticket = self.get_object()
@@ -33,10 +52,5 @@ class TicketViewSet(viewsets.ModelViewSet):
         deleted_count, _ = Notifications.objects.filter(
             ticket=ticket, subscriber=request.user
         ).delete()
-
-        if deleted_count == 0:
-            return Response(
-                {"detail": "Not subscribed."}, status=status.HTTP_400_BAD_REQUEST
-            )
 
         return Response(status=status.HTTP_204_NO_CONTENT)

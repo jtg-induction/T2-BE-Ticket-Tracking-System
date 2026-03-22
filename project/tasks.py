@@ -4,6 +4,7 @@ from smtplib import SMTPException
 from celery import shared_task
 from django.conf import settings
 from django.core.mail import send_mail
+from django.utils.html import escape
 
 
 @shared_task(
@@ -15,13 +16,10 @@ from django.core.mail import send_mail
 def send_invitation_email(recipient_email, project_title, invite_url):
     """
     Asynchronously sends a project invitation email to a recipient.
-
-
-    Args:
-        recipient_email (str): The email address of the invitee.
-        project_title (str): The name of the project the user is being invited to.
-        invite_url (str): The unique URL/token used to accept the invitation.
     """
+    safe_project_title = escape(project_title)
+    safe_invite_url = escape(invite_url)
+
     subject = f"You've been invited to join {project_title}"
 
     plain_message = (
@@ -42,14 +40,14 @@ def send_invitation_email(recipient_email, project_title, invite_url):
             </h1>
             
             <p style="font-size: 16px; line-height: 1.6; color: #374151; margin-bottom: 24px;">
-                You’ve been invited to join <strong>{project_title}</strong>. 
+                You've been invited to join <strong>{safe_project_title}</strong>. 
                 Click the button below to accept and get started.
             </p>
 
-            <a href="{invite_url}" style="background-color: #000000; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 15px; display: inline-block;">
+            <a href="{safe_invite_url}" style="background-color: #000000; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 15px; display: inline-block;">
                 Accept Invitation
             </a>
-
+        </div>
     </body>
     </html>
     """
