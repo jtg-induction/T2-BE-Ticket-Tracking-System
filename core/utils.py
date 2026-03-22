@@ -127,34 +127,61 @@ def parse_jira_error(e):
 
 class ADFConverter:
     """
-    A utility class to convert Markdown-style text into Atlassian Document Format (ADF).
-
-    This converter handles block-level elements (Headings, Paragraphs) and
-    inline-level formatting (Bold, Italic, Strikethrough, Code, and Links).
+    A converter to transform Markdown-style text into Atlassian Document Format (ADF).
     """
 
     @staticmethod
     def to_adf(text):
         """
-        Converts a string of Markdown text into a full ADF JSON structure.
-
-        Args:
-            text (str): The raw markdown string to convert.
-
-        Returns:
-            dict: A dictionary representing the ADF 'doc' root, or None if input is empty.
+        Converts a Markdown string into an ADF dictionary structure.
         """
         if not text:
             return None
 
         lines = text.split("\n")
-        content_nodes = []
+        content_nodes, list_buffer, list_type = [], [], None
+
+        def flush_list():
+            if list_buffer:
+                content_nodes.append({"type": list_type, "content": list_buffer[:]})
+                list_buffer.clear()
 
         for line in lines:
-            if not line.strip():
+            stripped_line = line.lstrip()
+
+            bullet_match = re.match(r"^[\*\-\+]\s+(.*)", stripped_line)
+            order_match = re.match(r"^\d+\.\s+(.*)", stripped_line)
+
+            if bullet_match or order_match:
+                new_type = "bulletList" if bullet_match else "orderedList"
+                if list_type and new_type != list_type:
+                    flush_list()
+
+                list_type = new_type
+                content = (
+                    bullet_match.group(1) if bullet_match else order_match.group(1)
+                )
+
+                list_buffer.append(
+                    {
+                        "type": "listItem",
+                        "content": [
+                            {
+                                "type": "paragraph",
+                                "content": ADFConverter._parse_inline(content),
+                            }
+                        ],
+                    }
+                )
                 continue
 
-            heading_match = re.match(r"^(#{1,6})\s+(.*)", line)
+            if not stripped_line:
+                flush_list()
+                continue
+
+            flush_list()
+
+            heading_match = re.match(r"^(#{1,6})\s+(.*)", stripped_line)
             if heading_match:
                 hashes, content = heading_match.groups()
                 content_nodes.append(
@@ -164,159 +191,180 @@ class ADFConverter:
                         "content": ADFConverter._parse_inline(content),
                     }
                 )
-                continue
+            else:
+                content_nodes.append(
+                    {
+                        "type": "paragraph",
+                        "content": ADFConverter._parse_inline(line.strip()),
+                    }
+                )
 
-            content_nodes.append(
-                {"type": "paragraph", "content": ADFConverter._parse_inline(line)}
-            )
-
+        flush_list()
         return {"version": 1, "type": "doc", "content": content_nodes}
 
     @staticmethod
-    def _parse_inline(text):
+    def _parse_inline(text, active_marks=None):
         """
-        Parses a single line of text into ADF inline nodes with marks.
-
-        Identifies code snippets, bold text, italics, strikethroughs, and
-        hyperlinks using regular expressions.
-
-        Args:
-            text (str): The line content to be parsed for inline formatting.
-
-        Returns:
-            list: A list of ADF text nodes containing text and associated marks.
+        Recursively parses inline text to identify marks like bold, italic, and links.
         """
-        pattern = r"(`(?P<code>[^`]+)`)|(\*\*(?P<bold>[^*]+)\*\*)|(\*(?P<italic>[^*]+)\*)|(~~(?P<strike>[^~]+)~~)|(\[(?P<text>[^\]]+)\]\((?P<url>[^\)]+)\))"
+        if not text:
+            return []
+        if active_marks is None:
+            active_marks = []
 
-        nodes = []
-        last_idx = 0
+        patterns = [
+            (r"\*\*\*(.*?)\*\*\*", ["strong", "em"]),
+            (r"\*\*(.*?)\*\*", ["strong"]),
+            (r"~~(.*?)~~", ["strike"]),
+            (r"\*(.*?)\*", ["em"]),
+            (r"<u>(.*?)</u>", ["underline"]),
+            (r"\+\+(.*?)\+\+", ["underline"]),
+            (r"`(.*?)`", ["code"]),
+            (r"\[(.*?)\]\((https?://[^\s\)]+)\)", ["link"]),
+            (r"(https?://[^\s\)]+)", ["link_raw"]),
+        ]
 
-        for match in re.finditer(pattern, text):
-            if match.start() > last_idx:
-                nodes.append({"type": "text", "text": text[last_idx : match.start()]})
+        for regex, mark_types in patterns:
+            match = re.search(regex, text)
+            if match:
+                nodes = []
+                if match.start() > 0:
+                    nodes.extend(
+                        ADFConverter._parse_inline(text[: match.start()], active_marks)
+                    )
 
-            groups = match.groupdict()
-            if groups["code"]:
-                nodes.append(
-                    {
-                        "type": "text",
-                        "text": groups["code"],
-                        "marks": [{"type": "code"}],
-                    }
-                )
-            elif groups["bold"]:
-                nodes.append(
-                    {
-                        "type": "text",
-                        "text": groups["bold"],
-                        "marks": [{"type": "strong"}],
-                    }
-                )
-            elif groups["italic"]:
-                nodes.append(
-                    {
-                        "type": "text",
-                        "text": groups["italic"],
-                        "marks": [{"type": "em"}],
-                    }
-                )
-            elif groups["strike"]:
-                nodes.append(
-                    {
-                        "type": "text",
-                        "text": groups["strike"],
-                        "marks": [{"type": "strike"}],
-                    }
-                )
-            elif groups["text"]:
-                nodes.append(
-                    {
-                        "type": "text",
-                        "text": groups["text"],
-                        "marks": [{"type": "link", "attrs": {"href": groups["url"]}}],
-                    }
-                )
+                new_marks = active_marks[:]
+                inner_text = match.group(1)
 
-            last_idx = match.end()
+                if "link" in mark_types:
+                    new_marks.append(
+                        {"type": "link", "attrs": {"href": match.group(2)}}
+                    )
+                elif "link_raw" in mark_types:
+                    new_marks.append(
+                        {"type": "link", "attrs": {"href": match.group(1)}}
+                    )
+                else:
+                    for mt in mark_types:
+                        if not any(m.get("type") == mt for m in new_marks):
+                            new_marks.append({"type": mt})
 
-        if last_idx < len(text):
-            nodes.append({"type": "text", "text": text[last_idx:]})
+                nodes.extend(ADFConverter._parse_inline(inner_text, new_marks))
 
-        return nodes if nodes else [{"type": "text", "text": text}]
+                if match.end() < len(text):
+                    nodes.extend(
+                        ADFConverter._parse_inline(text[match.end() :], active_marks)
+                    )
+                return nodes
+
+        return (
+            [{"type": "text", "text": text, "marks": active_marks}]
+            if active_marks
+            else [{"type": "text", "text": text}]
+        )
 
 
 class ADFToMarkdownConverter:
     """
-    A utility class to convert Atlassian Document Format (ADF) JSON back into Markdown text.
+    A converter to transform Atlassian Document Format (ADF) JSON into Markdown text.
     """
 
     @staticmethod
     def to_markdown(adf_data):
         """
-        Converts an ADF dictionary into a Markdown string.
-
-        Args:
-            adf_data (dict): The full ADF 'doc' structure.
-
-        Returns:
-            str: The converted Markdown string.
+        Entry point to convert an ADF dictionary into a formatted Markdown string.
         """
         if not adf_data or "content" not in adf_data:
             return ""
 
-        markdown_parts = []
-        for node in adf_data["content"]:
-            markdown_parts.append(ADFToMarkdownConverter._process_node(node))
-
-        return "\n\n".join(markdown_parts)
+        return ADFToMarkdownConverter._render_nodes(adf_data.get("content", [])).strip()
 
     @staticmethod
-    def _process_node(node):
+    def _render_nodes(nodes, indent_level=0):
         """
-        Processes individual ADF nodes (headings, paragraphs, text) into Markdown.
+        Iterates through ADF nodes and recursively builds the Markdown string based on node types.
         """
-        node_type = node.get("type")
-        content = node.get("content", [])
+        md = ""
+        for node in nodes:
+            node_type = node.get("type")
 
-        inner_text = ""
-        for child in content:
-            inner_text += ADFToMarkdownConverter._process_inline_node(child)
+            if node_type == "heading":
+                level = node.get("attrs", {}).get("level", 1)
+                inner = ADFToMarkdownConverter._render_nodes(
+                    node.get("content", []), indent_level
+                )
+                md += f"{'#' * level} {inner.strip()}\n\n"
 
-        if node_type == "heading":
-            level = node.get("attrs", {}).get("level", 1)
-            return f"{'#' * level} {inner_text}"
+            elif node_type == "paragraph":
+                inner = ADFToMarkdownConverter._render_nodes(
+                    node.get("content", []), indent_level
+                )
+                md += f"{inner.strip()}\n\n"
 
-        if node_type == "paragraph":
-            return inner_text
+            elif node_type in ["bulletList", "orderedList"]:
+                for i, item in enumerate(node.get("content", []), 1):
+                    prefix = f"{i}. " if node_type == "orderedList" else "- "
+                    content = ADFToMarkdownConverter._render_nodes(
+                        item.get("content", []), indent_level + 1
+                    )
 
-        if node_type == "rule":
-            return "---"
+                    lines = content.strip().split("\n")
+                    if lines:
+                        md += f"{'  ' * indent_level}{prefix}{lines[0]}\n"
+                        for extra_line in lines[1:]:
+                            md += f"{'  ' * (indent_level + 1)}{extra_line}\n"
+                md += "\n"
 
-        return inner_text
+            elif node_type == "listItem":
+                md += ADFToMarkdownConverter._render_nodes(
+                    node.get("content", []), indent_level
+                )
+
+            elif node_type == "text":
+                md += ADFToMarkdownConverter._apply_marks(node)
+
+            elif node_type == "hardBreak":
+                md += "  \n"
+
+            elif node_type == "rule":
+                md += "---\n\n"
+
+        return md
 
     @staticmethod
-    def _process_inline_node(node):
+    def _apply_marks(node):
         """
-        Handles text nodes and applies Markdown symbols based on ADF marks.
+        Applies formatting marks to text nodes in a specific order to ensure valid Markdown syntax.
         """
-        if node.get("type") != "text":
-            return ""
-
         text = node.get("text", "")
         marks = node.get("marks", [])
+        if not marks:
+            return text
 
-        for mark in marks:
-            mark_type = mark.get("type")
-            if mark_type == "strong":
-                text = f"**{text}**"
-            elif mark_type == "em":
-                text = f"*{text}*"
-            elif mark_type == "strike":
-                text = f"~~{text}~~"
-            elif mark_type == "code":
+        priority = {
+            "underline": 1,
+            "link": 2,
+            "code": 3,
+            "em": 4,
+            "strong": 5,
+            "strike": 6,
+        }
+        sorted_marks = sorted(marks, key=lambda m: priority.get(m["type"], 0))
+
+        for mark in sorted_marks:
+            m_type = mark.get("type")
+            if m_type == "code":
                 text = f"`{text}`"
-            elif mark_type == "link":
-                url = mark.get("attrs", {}).get("href", "")
-                text = f"[{text}]({url})"
+            elif m_type == "underline":
+                text = f"<u>{text}</u>"
+            elif m_type == "link":
+                href = mark.get("attrs", {}).get("href", "#")
+                text = f"[{text}]({href})"
+            elif m_type == "em":
+                text = f"*{text}*"
+            elif m_type == "strong":
+                text = f"**{text}**"
+            elif m_type == "strike":
+                text = f"~~{text}~~"
 
         return text
