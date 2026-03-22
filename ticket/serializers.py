@@ -1,10 +1,20 @@
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 
 from comment.tasks import sync_comments_in_batches
+from config.celery import app
 from core.services import JiraProjectService
 from core.utils import parse_jira_error
+from notifications.models import Notifications
+from notifications.tasks import (
+    run_assignee_notification,
+    run_deadline_notification,
+    run_status_notification,
+)
 from project.enums import MemberStatus
 from project.models import ProjectMember, ProjectModel
 from user.serializers import UserSerializer
@@ -29,6 +39,7 @@ class TicketSerializer(serializers.ModelSerializer):
     is_project_archived = serializers.BooleanField(
         source="project.is_archived", read_only=True
     )
+    is_subscribed = serializers.SerializerMethodField()
 
     class Meta:
         model = Ticket
@@ -41,6 +52,18 @@ class TicketSerializer(serializers.ModelSerializer):
             "status_updated_by",
             "is_project_archived",
         ]
+
+    def get_is_subscribed(self, obj):
+        is_subscribed = getattr(obj, "is_subscribed", None)
+        if is_subscribed is not None:
+            return is_subscribed
+
+        user = self.context.get("request").user
+        if user and user.is_authenticated:
+            return Notifications.objects.filter(
+                ticket=obj, subscriber=user, is_deleted=False
+            ).exists()
+        return False
 
     def validate_status(self, value):
         """
@@ -137,6 +160,7 @@ class TicketSerializer(serializers.ModelSerializer):
             reporter = user
         validated_data["reporter"] = reporter
         project = validated_data["project"]
+        assignee = validated_data.get("assignee")
         deadline = validated_data.get("deadline")
         formatted_deadline = deadline.strftime("%Y-%m-%d") if deadline else None
 
@@ -156,37 +180,116 @@ class TicketSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"detail": clean_error})
 
         validated_data["jira_id"] = jira_response.get("key")
-        return super().create(validated_data)
+
+        with transaction.atomic():
+            ticket = super().create(validated_data)
+
+            # automatically subscribing reporter and assignee
+            subscribers_to_add = {reporter}
+            if assignee:
+                subscribers_to_add.add(assignee)
+
+            notification_instances = [
+                Notifications(ticket=ticket, subscriber=sub)
+                for sub in subscribers_to_add
+            ]
+
+            Notifications.objects.bulk_create(notification_instances)
+
+            # send email to assignee
+            if assignee:
+                transaction.on_commit(
+                    lambda: run_assignee_notification.delay(ticket.id)
+                )
+
+            if deadline:
+                remainder_time = deadline - timedelta(days=1)
+
+                if remainder_time < timezone.now():
+                    remainder_time = deadline - timedelta(hours=2)
+
+                if remainder_time > timezone.now():
+                    task_result = run_deadline_notification.apply_async(
+                        args=[ticket.id], eta=remainder_time
+                    )
+                    ticket.deadline_task_id = task_result.id
+                    ticket.save(update_fields=["deadline_task_id"])
+
+            return ticket
 
     def update(self, instance, validated_data):
-        """
-        Updates local ticket and triggers a corresponding update in Jira.
-
-        Tracks status transition metadata (who, when, and from what status).
-        """
         user = self.context["request"].user
-        new_status = validated_data.get("status")
 
-        if new_status and new_status != instance.status:
-            validated_data["status_updated_from"] = instance.status
+        # 1. Snapshots for comparison
+        old_status = instance.status
+        old_deadline = instance.deadline
+        old_assignee = instance.assignee
+        old_task_id = instance.deadline_task_id
+
+        new_status = validated_data.get("status")
+        new_deadline = validated_data.get("deadline")
+        new_assignee = validated_data.get("assignee")
+
+        # 2. Update Metadata
+        if new_status and new_status != old_status:
+            validated_data["status_updated_from"] = old_status
             validated_data["status_updated_at"] = timezone.now()
             validated_data["status_updated_by"] = user
-
             if new_status == Status.CLOSED:
                 validated_data["completed_at"] = timezone.now()
 
         validated_data["updated_by"] = user
 
+        # 3. Jira Sync
         try:
             JiraProjectService.update_jira_task(
                 user=user, ticket_instance=instance, validated_data=validated_data
             )
-        except Exception:
-            raise serializers.ValidationError(
-                "Jira synchronization failed. Local update aborted."
-            )
+        except Exception as e:
+            raise serializers.ValidationError({"detail": parse_jira_error(e)})
 
-        return super().update(instance, validated_data)
+        # 4. Atomic Database Updates
+        with transaction.atomic():
+            for attr, value in validated_data.items():
+                setattr(instance, attr, value)
+
+            # Auto-subscribe new assignee
+            if new_assignee and new_assignee != old_assignee:
+                Notifications.objects.get_or_create(
+                    ticket=instance, subscriber=new_assignee
+                )
+
+            # Revoke old task and schedule new one
+            if new_deadline and new_deadline != old_deadline:
+                if old_task_id:
+                    app.control.revoke(old_task_id, terminate=True)
+
+                remainder_time = new_deadline - timedelta(days=1)
+                if remainder_time < timezone.now():
+                    remainder_time = new_deadline - timedelta(hours=2)
+
+                if remainder_time > timezone.now():
+                    new_task = run_deadline_notification.apply_async(
+                        args=[instance.id], eta=remainder_time
+                    )
+                    instance.deadline_task_id = new_task.id
+                else:
+                    instance.deadline_task_id = None
+
+            instance.save()
+
+            # 5. TRIGGER NOTIFICATIONS
+            if new_status and new_status != old_status:
+                transaction.on_commit(
+                    lambda: run_status_notification.delay(instance.id)
+                )
+
+            if new_assignee and new_assignee != old_assignee:
+                transaction.on_commit(
+                    lambda: run_assignee_notification.delay(instance.id)
+                )
+
+        return instance
 
     def to_representation(self, instance):
         """
