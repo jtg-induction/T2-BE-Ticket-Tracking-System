@@ -22,6 +22,7 @@ api_urls = [
     path("", include("user.urls")),
     path("", include("project.urls")),
     path("", include("ticket.urls")),
+    path("", include("comment.urls")),
 ]
 
 urlpatterns = [
