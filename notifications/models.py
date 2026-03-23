@@ -15,3 +15,12 @@ class Notifications(BaseModel):
     subscriber = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications"
     )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["ticket", "subscriber", "is_deleted"],
+                condition=models.Q(is_deleted=False),
+                name="uniq_active_ticket_subscription",
+            )
+        ]

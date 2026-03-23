@@ -119,44 +119,48 @@ class JiraTicketViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=["get"], url_path="search")
     def search(self, request, project_pk=None):
-        """
-        Executes a JQL search against the linked Jira project.
-        Maps remote Jira issues to in-memory Ticket instances for standardized
-        serialization before returning results.
-        """
-        query = request.query_params.get("q")
+        query = request.query_params.get("q", "")
         cursor = request.query_params.get("cursor", None)
-        maxResults = request.query_params.get("max_results")
-        if not query:
-            return Response({"error": "Query parameter 'q' is required"}, status=400)
+        max_results = request.query_params.get("max_results", 50)
 
         project = get_object_or_404(ProjectModel, pk=project_pk)
 
         try:
-            jira_issues = JiraProjectService.search_jira_tickets(
+            jira_data = JiraProjectService.search_jira_tickets(
                 user=request.user,
                 project_instance=project,
                 jql_query=query,
                 nextPageToken=cursor,
-                maxResults=maxResults,
+                maxResults=max_results,
             )
 
-            tickets = [
-                map_jira_to_ticket(i, project) for i in jira_issues.get("issues", [])
-            ]
+            jira_issues = jira_data.get("issues", [])
+
+            remote_keys = [issue.get("key") for issue in jira_issues]
+
+            existing_keys = set(
+                Ticket.objects.filter(
+                    project=project, jira_id__in=remote_keys
+                ).values_list("jira_id", flat=True)
+            )
+
+            tickets = []
+            for issue in jira_issues:
+                ticket_obj = map_jira_to_ticket(issue, project)
+                ticket_obj.is_imported = ticket_obj.jira_id in existing_keys
+                tickets.append(ticket_obj)
 
             serializer = self.get_serializer(tickets, many=True)
             return Response(
                 {
                     "results": serializer.data,
-                    "next": jira_issues["next_page_token"],
-                    "count": jira_issues["total"],
+                    "next": jira_data.get("next_page_token"),
+                    "total": jira_data.get("total", 0),
                 }
             )
 
         except Exception as e:
-            clear_error = parse_jira_error(e)
-            return Response({"error": clear_error}, status=400)
+            return Response({"error": parse_jira_error(e)}, status=400)
 
     @action(detail=False, methods=["post"], url_path="import")
     def import_to_local(self, request, project_pk=None):
