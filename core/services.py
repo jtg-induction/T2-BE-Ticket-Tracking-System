@@ -403,7 +403,11 @@ class JiraProjectService:
             fields["labels"] = [validated_data["category"]]
 
         if "assignee" in validated_data:
-            fields["assignee"] = {"id": validated_data["assignee"].jira_id}
+            assignee_obj = validated_data.get("assignee")
+            if assignee_obj:
+                fields["assignee"] = {"id": assignee_obj.jira_id}
+            else:
+                fields["assignee"] = None
 
         if fields:
             endpoint = f"/rest/api/3/issue/{jira_id}"

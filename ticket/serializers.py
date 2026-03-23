@@ -232,11 +232,12 @@ class TicketSerializer(serializers.ModelSerializer):
         old_assignee = instance.assignee
         old_task_id = instance.deadline_task_id
 
+        if "assignee" in validated_data and validated_data["assignee"] == "":
+            validated_data["assignee"] = None
+
         new_status = validated_data.get("status")
         new_deadline = validated_data.get("deadline")
         new_assignee = validated_data.get("assignee")
-        if new_assignee == "":
-            new_assignee = None
 
         # 2. Update Metadata
         if new_status and new_status != old_status:
