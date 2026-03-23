@@ -414,7 +414,7 @@ class ProjectMemberAPITests(APITestCase):
         self.client.force_authenticate(user=self.admin)
         url = self.get_role_url(self.member.user_id)
 
-        response = self.client.post(url, {"projectRole": "admin"})
+        response = self.client.post(url, {"project_role": "admin"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.member_membership.refresh_from_db()
@@ -428,7 +428,7 @@ class ProjectMemberAPITests(APITestCase):
         self.client.force_authenticate(user=self.owner)
         url = self.get_role_url(self.admin.user_id)
 
-        response = self.client.post(url, {"projectRole": "member"})
+        response = self.client.post(url, {"project_role": "member"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.admin_membership.refresh_from_db()
@@ -447,7 +447,7 @@ class ProjectMemberAPITests(APITestCase):
         self.client.force_authenticate(user=self.admin)
         url = self.get_role_url(admin2.user_id)
 
-        response = self.client.post(url, {"projectRole": "member"})
+        response = self.client.post(url, {"project_role": "member"})
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 

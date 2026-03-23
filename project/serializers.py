@@ -261,8 +261,7 @@ class ProjectMemberSerializer(serializers.ModelSerializer):
     first_name = serializers.CharField(source="user.first_name", read_only=True)
     last_name = serializers.CharField(source="user.last_name", read_only=True)
     email = serializers.EmailField(source="user.email", read_only=True)
-    full_name = serializers.CharField(source="user.get_full_name", read_only=True)
-    projectRole = serializers.SerializerMethodField()
+    project_role = serializers.SerializerMethodField()
 
     class Meta:
         model = ProjectMember
@@ -271,13 +270,12 @@ class ProjectMemberSerializer(serializers.ModelSerializer):
             "last_name",
             "user_id",
             "email",
-            "full_name",
-            "projectRole",
+            "project_role",
             "is_admin",
             "created_at",
         ]
 
-    def get_projectRole(self, obj):
+    def get_project_role(self, obj):
         """
         Determines the member's role priority.
 

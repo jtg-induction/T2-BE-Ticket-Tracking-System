@@ -11,14 +11,15 @@ from core.renders import StandardizedJSONRenderer
 from core.services import JiraProjectService
 from core.utils import StandardizedPagination, parse_jira_error
 
-from .enums import MemberStatus
+from .enums import MemberStatus, ProjectRole
 from .models import ProjectInvitation, ProjectMember, ProjectModel
-from .permissions import IsProjectMember
+from .permissions import CanManageProjectMember, IsProjectMember
 from .serializers import (
     InviteUserSerializer,
     ProjectMemberSerializer,
     ProjectSerializer,
 )
+from .services import ProjectMembershipService
 
 
 class ProjectViewSet(viewsets.ModelViewSet):
@@ -194,7 +195,7 @@ class ProjectInvitationView(viewsets.GenericViewSet):
                 user=invitation.invited_by,
                 project=invitation.project,
                 invitee=invitation.invitee,
-                is_admin=invitation.is_admin,
+                role=invitation.is_admin,
             )
         except Exception as e:
             clear_error = parse_jira_error(e)
@@ -253,25 +254,13 @@ class ProjectInvitationView(viewsets.GenericViewSet):
 class ProjectMemberViewSet(viewsets.GenericViewSet):
     """
     ViewSet for managing project membership, roles, and ownership.
-
     """
 
     serializer_class = ProjectMemberSerializer
-    permission_classes = [IsAuthenticated, IsProjectMember]
-    pagination_class = StandardizedPagination
-    renderer_classes = [StandardizedJSONRenderer]
+    lookup_field = "user_id"
+    lookup_url_kwarg = "user_id"
 
     def get_queryset(self):
-        """
-        Retrieves the list of active members for a specific project.
-
-        Annotates the queryset with a 'priority' field to ensure the
-        ordering follows a specific hierarchy:
-        1. The requesting user (Self)
-        2. Project Owner
-        3. Project Admins
-        4. Regular Members
-        """
         project_id = self.kwargs.get("project_id")
         user = self.request.user
 
@@ -279,6 +268,7 @@ class ProjectMemberViewSet(viewsets.GenericViewSet):
             ProjectMember.objects.filter(
                 project_id=project_id, status=MemberStatus.MEMBER
             )
+            .select_related("user", "project")
             .annotate(
                 priority=Case(
                     When(user=user, then=Value(1)),
@@ -291,153 +281,72 @@ class ProjectMemberViewSet(viewsets.GenericViewSet):
             .order_by("priority", "user__email")
         )
 
+    def get_permissions(self):
+        """
+        Applies IsProjectMember to general actions and
+        CanManageProjectMember to destructive/role actions.
+        """
+        if self.action in ["update_role", "destroy"]:
+            return [IsAuthenticated(), CanManageProjectMember()]
+        return [IsAuthenticated(), IsProjectMember()]
+
     def list(self, request, *args, **kwargs):
-        """
-        Returns a paginated list of all active members in the project,
-        ordered by their role priority and email.
-        """
         queryset = self.get_queryset()
         page = self.paginate_queryset(queryset)
-
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
 
         serializer = self.get_serializer(queryset, many=True)
-        return Response(data=serializer.data)
+        return Response(serializer.data)
 
+    @action(detail=True, methods=["patch"], url_path="update-role")
     def update_role(self, request, project_id=None, user_id=None):
         """
-        Updates the role of a project member.
-
-        Logic:
-        - 'owner': Transfers project ownership. Only the current owner can perform this.
-        - 'admin': Promotes a member. Requires the requester to be an owner or admin.
-        - 'member': Demotes an admin. Only the owner can demote other admins.
+        Coordinates role updates between Jira and Local DB via Services.
         """
         project = get_object_or_404(ProjectModel, id=project_id)
-        target_member = get_object_or_404(
-            ProjectMember, project=project, user_id=user_id
-        )
-        current_user = request.user
-        requester_membership = get_object_or_404(
-            ProjectMember, project=project, user=current_user
-        )
+        target_member = self.get_object()
 
-        role_input = request.data.get("role") or request.data.get("projectRole")
+        role_input = request.data.get("role") or request.data.get("project_role")
         new_role = role_input.lower().strip() if isinstance(role_input, str) else None
 
-        if new_role == "owner":
-            if project.owner != current_user:
-                return Response(
-                    {"detail": "Only the owner can transfer ownership."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+        try:
+            JiraProjectService.update_user_role_in_jira(
+                user=request.user,
+                project=project,
+                target_user=target_member.user,
+                new_role=new_role,
+            )
 
-            try:
-                JiraProjectService.update_user_role_in_jira(
-                    user=current_user,
-                    project=project,
-                    target_user=target_member.user,
-                    new_role=new_role,
+            if new_role == ProjectRole.OWNER:
+                ProjectMembershipService.transfer_ownership(
+                    project, target_member, request.user
                 )
-            except Exception as e:
-                clean_error = parse_jira_error(e)
-                return Response(
-                    {"detail": clean_error},
-                    status=status.HTTP_400_BAD_REQUEST,
+            elif new_role in [ProjectRole.ADMIN, ProjectRole.MEMBER]:
+                ProjectMembershipService.update_role(
+                    project, target_member, request.user, new_role
                 )
-
-            with transaction.atomic():
-                ProjectMember.objects.filter(project=project, user=current_user).update(
-                    is_admin=True
-                )
-                project.owner = target_member.user
-                project.save()
-                target_member.is_admin = True
-                target_member.save()
-
-            return Response({"detail": "Ownership transferred successfully."})
-
-        if new_role in ["admin", "member"]:
-            if new_role == "admin":
-                if not (project.owner == current_user or requester_membership.is_admin):
-                    return Response(
-                        {"detail": "No permission to promote."},
-                        status=status.HTTP_403_FORBIDDEN,
-                    )
-                is_admin_val = True
             else:
-                if project.owner != current_user:
-                    return Response(
-                        {"detail": "Only owner can demote admins."},
-                        status=status.HTTP_403_FORBIDDEN,
-                    )
-                is_admin_val = False
-
-            try:
-                JiraProjectService.update_user_role_in_jira(
-                    user=current_user,
-                    project=project,
-                    target_user=target_member.user,
-                    new_role=new_role,
-                )
-            except Exception as e:
-                clean_error = parse_jira_error(e)
                 return Response(
-                    {"detail": clean_error},
-                    status=status.HTTP_400_BAD_REQUEST,
+                    {"detail": "Invalid role."}, status=status.HTTP_400_BAD_REQUEST
                 )
 
-            with transaction.atomic():
-                target_member.is_admin = is_admin_val
-                target_member.save()
+            return Response({"detail": f"Role updated to {new_role} successfully."})
 
-            return Response({"detail": f"Role updated to {new_role}."})
-
-        return Response({"detail": "Invalid role."}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response(
+                {"detail": parse_jira_error(e)}, status=status.HTTP_400_BAD_REQUEST
+            )
 
     def destroy(self, request, project_id=None, user_id=None):
         """
-        Handles member removal or voluntary exit from a project.
-
-        Logic:
-        1. If a user is removing themselves:
-           - They cannot leave if they are the Project Owner (must transfer first).
-        2. If a user is removing someone else (kicking):
-           - Owners can remove anyone.
-           - Admins can only remove regular members (cannot remove other admins or the owner).
+        Handles member removal or departure.
         """
         project = get_object_or_404(ProjectModel, id=project_id)
-        target_member = get_object_or_404(
-            ProjectMember, project=project, user_id=user_id
+        target_member = self.get_object()
+
+        message = ProjectMembershipService.remove_or_exit(
+            project, target_member, request.user
         )
-        requester = request.user
-
-        if str(requester.user_id) == str(user_id):
-            if project.owner == requester:
-                return Response(
-                    {"detail": "Owner cannot leave without transferring ownership."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            target_member.status = MemberStatus.LEFT
-            target_member.save()
-            return Response({"detail": "You have left the project."})
-
-        requester_membership = get_object_or_404(
-            ProjectMember, project=project, user=requester
-        )
-
-        can_kick = (project.owner == requester) or (
-            requester_membership.is_admin and not target_member.is_admin
-        )
-
-        if not can_kick:
-            return Response(
-                {"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN
-            )
-
-        target_member.status = MemberStatus.LEFT
-        target_member.save()
-        return Response({"detail": "Member removed successfully."})
+        return Response({"detail": message})
