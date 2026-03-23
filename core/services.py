@@ -1,13 +1,31 @@
 from rest_framework import serializers
 
+from project.enums import JiraRole, ProjectRole
+
 from .constants import ASSIGNEE_TYPE_LEAD, DEFAULT_PROJECT_TYPE, KANBAN_TEMPLATE
 from .jiraclient import JiraClient
 
 
 class JiraProjectService:
     """
-    Service layer for coordinating  jira-related operations with the Jira Cloud API.
+    Service layer for coordinating jira-related operations with the Jira Cloud API.
     """
+
+    @classmethod
+    def _build_endpoint(cls, project_id=None, sub_path=None):
+        """
+        Centralized builder for Jira Project API endpoints.
+        """
+        base = "/rest/api/3/project"
+        if not project_id:
+            return base
+
+        endpoint = f"{base}/{project_id}"
+        if sub_path:
+            path = sub_path if sub_path.startswith("/") else f"/{sub_path}"
+            endpoint = f"{endpoint}{path}"
+
+        return endpoint
 
     @classmethod
     def _get_client(cls, user, site_url):
@@ -36,7 +54,8 @@ class JiraProjectService:
         Returns:
             str: The numeric ID of the requested role.
         """
-        response = client.get(f"/rest/api/3/project/{project_id}/role")
+        endpoint = cls._build_endpoint(project_id, "role")
+        response = client.get(endpoint)
 
         if response.status_code != 200:
             raise serializers.ValidationError(
@@ -54,6 +73,28 @@ class JiraProjectService:
             raise serializers.ValidationError(
                 f"Jira returned an invalid URL format for role '{role_name}'."
             )
+
+    @classmethod
+    def _clear_user_roles_in_jira(cls, client, project_jira_id, target_jira_id):
+        """
+        Private helper to remove a user from Administrator and Member roles in Jira.
+        """
+        admin_role_id = cls._get_role_id_by_name(
+            client, project_jira_id, JiraRole.ADMINISTRATOR
+        )
+        member_role_id = cls._get_role_id_by_name(
+            client, project_jira_id, JiraRole.MEMBER
+        )
+
+        for role_id in [admin_role_id, member_role_id]:
+            endpoint = cls._build_endpoint(project_jira_id, f"role/{role_id}")
+            params = {"user": target_jira_id}
+            response = client.delete(endpoint, params=params)
+
+            if response.status_code not in [200, 204, 404]:
+                raise serializers.ValidationError(
+                    f"Jira Role Operation Failed: {response.text}"
+                )
 
     @classmethod
     def create_jira_project(cls, user, project_data):
@@ -80,7 +121,7 @@ class JiraProjectService:
             "assigneeType": ASSIGNEE_TYPE_LEAD,
         }
 
-        response = client.post("/rest/api/3/project", payload)
+        response = client.post(cls._build_endpoint(), payload)
 
         if response.status_code == 201:
             return response.json().get("id")
@@ -110,7 +151,7 @@ class JiraProjectService:
                 "name": validated_data.get("title", instance.title),
                 "description": validated_data.get("description", instance.description),
             }
-            endpoint = f"/rest/api/3/project/{project_id}"
+            endpoint = cls._build_endpoint(project_id)
             response = client.put(endpoint, payload)
             if response.status_code not in (200, 204):
                 raise serializers.ValidationError(
@@ -120,7 +161,7 @@ class JiraProjectService:
         if "is_archived" in validated_data:
             should_archive = validated_data["is_archived"]
             action = "archive" if should_archive else "restore"
-            archive_endpoint = f"/rest/api/3/project/{project_id}/{action}"
+            archive_endpoint = cls._build_endpoint(project_id, action)
 
             archive_res = client.post(archive_endpoint, data={})
 
@@ -131,7 +172,7 @@ class JiraProjectService:
                     )
 
     @classmethod
-    def add_user_to_jira_project(cls, user, project, invitee, is_admin) -> bool:
+    def add_user_to_jira_project(cls, user, project, invitee, role) -> bool:
         """
         Synchronizes a project membership with Jira Cloud by assigning the
         invitee to a specific project role.
@@ -140,24 +181,61 @@ class JiraProjectService:
             user (CustomUser): The user performing the action.
             project (ProjectModel): The project instance being modified.
             invitee (CustomUser): The user being added to the project.
-            is_admin (bool): Flag determining the level of access to grant in Jira.
+            role (ProjectRole): The level of access to grant in Jira.
 
         Returns:
             bool: True if the user was successfully added to the Jira role.
-
         """
         client = cls._get_client(user, project.site_url)
 
-        target_role_name = "Administrator" if is_admin else "Member"
+        if role in [ProjectRole.ADMIN, ProjectRole.OWNER]:
+            target_role_name = JiraRole.ADMINISTRATOR
+        else:
+            target_role_name = JiraRole.MEMBER
 
         role_id = cls._get_role_id_by_name(client, project.jira_id, target_role_name)
 
-        endpoint = f"/rest/api/3/project/{project.jira_id}/role/{role_id}"
+        endpoint = cls._build_endpoint(project.jira_id, f"role/{role_id}")
         payload = {"user": [invitee.jira_id]}
 
         response = client.post(endpoint, payload)
 
         if response.status_code not in [200, 201]:
-            raise serializers.ValidationError(f"{response.text}")
+            raise serializers.ValidationError(
+                f"Jira Role Assignment Failed: {response.text}"
+            )
+
+        return True
+
+    @classmethod
+    def update_user_role_in_jira(cls, user, project, target_user, new_role):
+        """
+        Updates a user's role by clearing existing roles and adding the new one via Enum.
+        """
+        client = cls._get_client(user, project.site_url)
+
+        cls._clear_user_roles_in_jira(client, project.jira_id, target_user.jira_id)
+
+        return cls.add_user_to_jira_project(
+            user=user, project=project, invitee=target_user, role=new_role
+        )
+
+    @classmethod
+    def remove_user_from_jira_project(cls, user, project, target_user) -> bool:
+        """
+        Removes a user from all recognized roles in a Jira project.
+
+        Args:
+            user (CustomUser): The requester performing the removal.
+            project (ProjectModel): The project from which the user is being removed.
+            target_user (User): The user being removed.
+
+        Returns:
+            bool: True if all removal requests were successful or the user
+                  already had no roles.
+        """
+        client = cls._get_client(user, project.site_url)
+
+        cls._clear_user_roles_in_jira(client, project.jira_id, target_user.jira_id)
 
         return True

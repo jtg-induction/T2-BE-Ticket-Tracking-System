@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Case, F, IntegerField, Q, Value, When
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -11,9 +11,15 @@ from core.renders import StandardizedJSONRenderer
 from core.services import JiraProjectService
 from core.utils import StandardizedPagination, parse_jira_error
 
-from .enums import MemberStatus
+from .enums import MemberStatus, ProjectRole
 from .models import ProjectInvitation, ProjectMember, ProjectModel
-from .serializers import InviteUserSerializer, ProjectSerializer
+from .permissions import CanManageProjectMember, IsProjectMember
+from .serializers import (
+    InviteUserSerializer,
+    ProjectMemberSerializer,
+    ProjectSerializer,
+)
+from .services import ProjectMembershipService
 
 
 class ProjectViewSet(viewsets.ModelViewSet):
@@ -189,7 +195,7 @@ class ProjectInvitationView(viewsets.GenericViewSet):
                 user=invitation.invited_by,
                 project=invitation.project,
                 invitee=invitation.invitee,
-                is_admin=invitation.is_admin,
+                role=invitation.is_admin,
             )
         except Exception as e:
             clear_error = parse_jira_error(e)
@@ -243,3 +249,104 @@ class ProjectInvitationView(viewsets.GenericViewSet):
 
         invitation.delete()
         return Response({"detail": "Invitation rejected."})
+
+
+class ProjectMemberViewSet(viewsets.GenericViewSet):
+    """
+    ViewSet for managing project membership, roles, and ownership.
+    """
+
+    serializer_class = ProjectMemberSerializer
+    lookup_field = "user_id"
+    lookup_url_kwarg = "user_id"
+
+    def get_queryset(self):
+        project_id = self.kwargs.get("project_id")
+        user = self.request.user
+
+        return (
+            ProjectMember.objects.filter(
+                project_id=project_id, status=MemberStatus.MEMBER
+            )
+            .select_related("user", "project")
+            .annotate(
+                priority=Case(
+                    When(user=user, then=Value(1)),
+                    When(user_id=F("project__owner_id"), then=Value(2)),
+                    When(is_admin=True, then=Value(3)),
+                    default=Value(4),
+                    output_field=IntegerField(),
+                )
+            )
+            .order_by("priority", "user__email")
+        )
+
+    def get_permissions(self):
+        """
+        Applies IsProjectMember to general actions and
+        CanManageProjectMember to destructive/role actions.
+        """
+        if self.action in ["update_role", "destroy"]:
+            return [IsAuthenticated(), CanManageProjectMember()]
+        return [IsAuthenticated(), IsProjectMember()]
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["patch"], url_path="update-role")
+    def update_role(self, request, project_id=None, user_id=None):
+        """
+        Coordinates role updates between Jira and Local DB via Services.
+        """
+        project = get_object_or_404(ProjectModel, id=project_id)
+        target_member = self.get_object()
+
+        role_input = request.data.get("role") or request.data.get("project_role")
+        new_role = role_input.lower().strip() if isinstance(role_input, str) else None
+
+        try:
+            JiraProjectService.update_user_role_in_jira(
+                user=request.user,
+                project=project,
+                target_user=target_member.user,
+                new_role=new_role,
+            )
+
+            if new_role == ProjectRole.OWNER:
+                ProjectMembershipService.transfer_ownership(
+                    project, target_member, request.user
+                )
+            elif new_role in [ProjectRole.ADMIN, ProjectRole.MEMBER]:
+                ProjectMembershipService.update_role(
+                    project, target_member, request.user, new_role
+                )
+            else:
+                return Response(
+                    {"detail": "Invalid role."}, status=status.HTTP_400_BAD_REQUEST
+                )
+
+            return Response({"detail": f"Role updated to {new_role} successfully."})
+
+        except Exception as e:
+            return Response(
+                {"detail": parse_jira_error(e)}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+    def destroy(self, request, project_id=None, user_id=None):
+        """
+        Handles member removal or departure.
+        """
+        project = get_object_or_404(ProjectModel, id=project_id)
+        target_member = self.get_object()
+
+        message = ProjectMembershipService.remove_or_exit(
+            project, target_member, request.user
+        )
+        return Response({"detail": message})

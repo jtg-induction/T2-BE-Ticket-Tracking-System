@@ -82,3 +82,17 @@ class JiraClient:
             requests.Response: The raw response from the Jira API.
         """
         return self._request("GET", endpoint, params=params)
+
+    def delete(self, endpoint, params=None):
+        """
+        Performs an authenticated DELETE request to a Jira API endpoint.
+
+        Args:
+            endpoint (str): The API path.
+            params (dict, optional): Query parameters to append to the URL.
+                                     Defaults to None.
+
+        Returns:
+            requests.Response: The raw response from the Jira API.
+        """
+        return self._request("DELETE", endpoint, params=params)
