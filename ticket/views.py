@@ -1,7 +1,9 @@
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
@@ -17,7 +19,7 @@ from ticket.utils import map_jira_to_ticket
 
 class TicketPagination(PageNumberPagination):
     page_query_param = "page"
-    page_size_query_param = "pageSize"
+    page_size_query_param = "page_size"
     page_size = 10
     max_page_size = 100
 
@@ -30,7 +32,13 @@ class TicketViewSet(viewsets.ModelViewSet):
     serializer_class = TicketSerializer
     permission_classes = [IsProjectAdminOrReadOnly]
     pagination_class = TicketPagination
-    renderer_classes = [StandardizedJSONRenderer]
+
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+
+    filterset_fields = ["status", "priority", "category", "project"]
+    search_fields = ["name", "description", "jira_id"]
+    ordering_fields = ["created_at", "deadline", "priority", "status"]
+    ordering = ["-created_at"]
 
     def get_queryset(self):
         """
@@ -46,11 +54,6 @@ class TicketViewSet(viewsets.ModelViewSet):
         queryset = Ticket.objects.filter(
             project_id=self.kwargs["project_pk"], is_deleted=False
         ).select_related("reporter", "assignee", "project", "project__owner")
-
-        status = self.request.query_params.get("status")
-
-        if status:
-            queryset = queryset.filter(status=status)
 
         self.user_membership = ProjectMember.objects.filter(
             user=user, project_id=self.kwargs["project_pk"], status=MemberStatus.MEMBER
@@ -89,6 +92,8 @@ class TicketViewSet(viewsets.ModelViewSet):
         queryset = Ticket.objects.select_related(
             "reporter", "assignee", "project"
         ).filter(Q(assignee=request.user) | Q(reporter=request.user))
+
+        queryset = self.filter_queryset(queryset)
 
         status = self.request.query_params.get("status")
 

@@ -54,7 +54,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         ).distinct()
 
         show_archived = (
-            self.request.query_params.get("archived", "false").lower() == "true"
+            self.request.query_params.get("archived", "true").lower() == "true"
         )
         return base_qs.filter(is_archived=show_archived)
 
