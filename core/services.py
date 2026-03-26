@@ -17,6 +17,15 @@ class JiraProjectService:
     """
 
     @classmethod
+    def _build_url(cls, *parts):
+        """
+        Internal helper to construct Jira API v3 endpoints.
+        Ensures segments are joined with single slashes and prefixed with the base API path.
+        """
+        path = "/".join(str(p).strip("/") for p in parts)
+        return f"/rest/api/3/{path}"
+
+    @classmethod
     def _handle_response(cls, response, context_message):
         """
         Internal helper to evaluate Jira responses and raise specific exceptions.
@@ -80,8 +89,8 @@ class JiraProjectService:
         Returns:
             str: The numeric ID of the requested role.
         """
-
-        response = client.get(f"/rest/api/3/project/{project_id}/role")
+        endpoint = cls._build_url("project", project_id, "role")
+        response = client.get(endpoint)
         cls._handle_response(response, f"Fetching role '{role_name}'")
 
         roles = response.json()
@@ -118,7 +127,8 @@ class JiraProjectService:
             "assigneeType": ASSIGNEE_TYPE_LEAD,
         }
 
-        response = client.post("/rest/api/3/project", payload)
+        endpoint = cls._build_url("project")
+        response = client.post(endpoint, payload)
         cls._handle_response(response, "Jira project creation")
         return response.json().get("id")
 
@@ -143,14 +153,14 @@ class JiraProjectService:
                 "name": validated_data.get("title", instance.title),
                 "description": validated_data.get("description", instance.description),
             }
-            endpoint = f"/rest/api/3/project/{project_id}"
+            endpoint = cls._build_url("project", project_id)
             response = client.put(endpoint, payload)
             cls._handle_response(response, "Jira Details Update")
 
         if "is_archived" in validated_data:
             should_archive = validated_data["is_archived"]
             action = "archive" if should_archive else "restore"
-            archive_endpoint = f"/rest/api/3/project/{project_id}/{action}"
+            archive_endpoint = cls._build_url("project", project_id, action)
             archive_res = client.post(archive_endpoint, data={})
             cls._handle_response(archive_res, f"Jira Project {action.capitalize()}")
 
@@ -170,11 +180,11 @@ class JiraProjectService:
             bool: True if the user was successfully added to the Jira role.
 
         """
-
         client = cls._get_client(user, project.site_url)
         target_role_name = "Administrator" if is_admin else "Member"
         role_id = cls._get_role_id_by_name(client, project.jira_id, target_role_name)
-        endpoint = f"/rest/api/3/project/{project.jira_id}/role/{role_id}"
+
+        endpoint = cls._build_url("project", project.jira_id, "role", role_id)
         payload = {"user": [invitee.jira_id]}
         response = client.post(endpoint, payload)
         cls._handle_response(response, f"Adding user to {target_role_name} role")
@@ -202,7 +212,7 @@ class JiraProjectService:
         member_role_id = cls._get_role_id_by_name(client, project.jira_id, "Member")
 
         for role_id in [admin_role_id, member_role_id]:
-            endpoint = f"/rest/api/3/project/{project.jira_id}/role/{role_id}"
+            endpoint = cls._build_url("project", project.jira_id, "role", role_id)
             params = {"user": target_user.jira_id}
             response = client.delete(endpoint, params=params)
 
@@ -234,7 +244,7 @@ class JiraProjectService:
         member_role_id = cls._get_role_id_by_name(client, project.jira_id, "Member")
 
         for role_id in [admin_role_id, member_role_id]:
-            endpoint = f"/rest/api/3/project/{project.jira_id}/role/{role_id}"
+            endpoint = cls._build_url("project", project.jira_id, "role", role_id)
             params = {"user": target_user.jira_id}
             response = client.delete(endpoint, params=params)
 
@@ -299,7 +309,8 @@ class JiraProjectService:
         if due_date:
             payload["fields"]["duedate"] = due_date
 
-        response = client.post("/rest/api/3/issue", payload)
+        endpoint = cls._build_url("issue")
+        response = client.post(endpoint, payload)
         cls._handle_response(response, "Jira Task Creation")
         jira_data = response.json()
         jira_id = jira_data.get("key")
@@ -321,9 +332,8 @@ class JiraProjectService:
 
             if transition_id:
                 transition_payload = {"transition": {"id": transition_id}}
-                trans_res = client.post(
-                    f"/rest/api/3/issue/{jira_id}/transitions", transition_payload
-                )
+                trans_endpoint = cls._build_url("issue", jira_id, "transitions")
+                trans_res = client.post(trans_endpoint, transition_payload)
                 cls._handle_response(
                     trans_res, f"Initial Jira Status Transition to '{status_name}'"
                 )
@@ -345,7 +355,7 @@ class JiraProjectService:
         Returns:
             list: A list of transition dictionaries containing IDs and 'to' names.
         """
-        endpoint = f"/rest/api/3/issue/{jira_id}/transitions"
+        endpoint = cls._build_url("issue", jira_id, "transitions")
         response = client.get(endpoint)
         cls._handle_response(response, f"Fetching transitions for {jira_id}")
 
@@ -392,9 +402,8 @@ class JiraProjectService:
 
             if transition_id:
                 transition_payload = {"transition": {"id": transition_id}}
-                trans_response = client.post(
-                    f"/rest/api/3/issue/{jira_id}/transitions", transition_payload
-                )
+                trans_endpoint = cls._build_url("issue", jira_id, "transitions")
+                trans_response = client.post(trans_endpoint, transition_payload)
 
                 cls._handle_response(
                     trans_response, f"Jira Status Transition to '{search_status}'"
@@ -443,7 +452,7 @@ class JiraProjectService:
                 fields["assignee"] = None
 
         if fields:
-            endpoint = f"/rest/api/3/issue/{jira_id}"
+            endpoint = cls._build_url("issue", jira_id)
             response = client.put(endpoint, {"fields": fields})
 
             cls._handle_response(response, "Jira Task Field Update")
@@ -493,7 +502,8 @@ class JiraProjectService:
             "nextPageToken": nextPageToken,
         }
 
-        response = client.post("/rest/api/3/search/jql", payload)
+        endpoint = cls._build_url("search", "jql")
+        response = client.post(endpoint, payload)
 
         cls._handle_response(response, "Jira JQL Search")
 
@@ -506,9 +516,12 @@ class JiraProjectService:
 
     @classmethod
     def add_comment_to_jira(cls, user, ticket_instance, message):
+        """
+        Adds a new comment to a Jira issue.
+        """
         client = cls._get_client(user, ticket_instance.project.site_url)
         payload = {"body": ADFConverter.to_adf(message)}
-        endpoint = f"/rest/api/3/issue/{ticket_instance.jira_id}/comment"
+        endpoint = cls._build_url("issue", ticket_instance.jira_id, "comment")
         response = client.post(endpoint, payload)
 
         cls._handle_response(response, "Adding Jira Comment")
@@ -518,10 +531,13 @@ class JiraProjectService:
     def update_jira_comment(
         cls, user, ticket_instance, jira_comment_id, message
     ) -> bool:
+        """
+        Updates an existing Jira comment.
+        """
         client = cls._get_client(user, ticket_instance.project.site_url)
         payload = {"body": ADFConverter.to_adf(message)}
-        endpoint = (
-            f"/rest/api/3/issue/{ticket_instance.jira_id}/comment/{jira_comment_id}"
+        endpoint = cls._build_url(
+            "issue", ticket_instance.jira_id, "comment", jira_comment_id
         )
         response = client.put(endpoint, payload)
         cls._handle_response(response, "Updating Jira Comment")
@@ -529,9 +545,12 @@ class JiraProjectService:
 
     @classmethod
     def delete_jira_comment(cls, user, ticket_instance, jira_comment_id) -> bool:
+        """
+        Deletes a specific Jira comment.
+        """
         client = cls._get_client(user, ticket_instance.project.site_url)
-        endpoint = (
-            f"/rest/api/3/issue/{ticket_instance.jira_id}/comment/{jira_comment_id}"
+        endpoint = cls._build_url(
+            "issue", ticket_instance.jira_id, "comment", jira_comment_id
         )
         response = client.delete(endpoint)
         cls._handle_response(response, "Deleting Jira Comment")
@@ -539,8 +558,11 @@ class JiraProjectService:
 
     @classmethod
     def fetch_jira_comments(cls, user, project_instance, ticket_jira_id) -> list:
+        """
+        Fetches all comments for a specific Jira issue.
+        """
         client = cls._get_client(user, project_instance.site_url)
-        endpoint = f"/rest/api/3/issue/{ticket_jira_id}/comment"
+        endpoint = cls._build_url("issue", ticket_jira_id, "comment")
         response = client.get(endpoint)
 
         cls._handle_response(response, "Fetching Jira Comments")
