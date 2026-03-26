@@ -138,6 +138,7 @@ class ProjectService:
             ProjectMember.objects.filter(
                 project_id=project_id, status=MemberStatus.MEMBER
             )
+            .select_related("user")
             .annotate(
                 priority=Case(
                     When(user=requesting_user, then=Value(1)),

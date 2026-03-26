@@ -1,5 +1,5 @@
 from django.shortcuts import get_object_or_404
-from rest_framework import status, viewsets
+from rest_framework import filters, status, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
@@ -90,13 +90,16 @@ class ProjectMemberViewSet(viewsets.GenericViewSet):
     pagination_class = StandardizedPagination
     renderer_classes = [StandardizedJSONRenderer]
 
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["user__first_name", "user__last_name", "user__email"]
+
     def get_queryset(self):
         return ProjectService.get_annotated_members(
             self.kwargs.get("project_id"), self.request.user
         )
 
     def list(self, request, project_id=None):
-        queryset = self.get_queryset()
+        queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page or queryset, many=True)
         return (
