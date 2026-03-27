@@ -1,7 +1,8 @@
 from rest_framework import serializers
 
+from comment.constants import CommentMessages
 from comment.models import CommentModel
-from core.services import JiraProjectService
+from core.services.jira import JiraProjectService
 from user.serializers import UserSerializer
 
 
@@ -24,9 +25,7 @@ class CommentSerializer(serializers.ModelSerializer):
 
     message = serializers.CharField(
         max_length=1000,
-        error_messages={
-            "max_length": "Comment is too long. Please keep it under 10,000 characters."
-        },
+        error_messages={"max_length": CommentMessages.MAX_LENGTH_ERROR},
     )
 
     class Meta:

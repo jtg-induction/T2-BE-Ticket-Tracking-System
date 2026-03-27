@@ -6,8 +6,9 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import serializers
 
-from core.services import JiraProjectService
-from project.enums import MemberStatus
+from core.services.jira import JiraProjectService
+from project.constants import ProjectMessages
+from project.enums import MemberStatus, ProjectRole
 from project.models import ProjectInvitation, ProjectMember, ProjectModel
 from project.services import ProjectService
 from user.models import CustomUser
@@ -74,9 +75,7 @@ class ProjectSerializer(serializers.ModelSerializer):
         """
         pattern = r"^[A-Z][A-Z0-9]{1,9}$"
         if not re.match(pattern, value):
-            raise serializers.ValidationError(
-                "Jira Project Key must be uppercase, start with a letter, and must be 2-10 chars in length."
-            )
+            raise serializers.ValidationError(ProjectMessages.KEY_REQUIREMENTS)
         return value
 
     def validate_site_url(self, value):
@@ -89,12 +88,10 @@ class ProjectSerializer(serializers.ModelSerializer):
         host = (parsed.hostname or "").lower()
 
         if parsed.scheme != "https":
-            raise serializers.ValidationError("Site URL must use HTTPS for security.")
+            raise serializers.ValidationError(ProjectMessages.HTTPS_REQUIRED)
 
         if not host.endswith(".atlassian.net"):
-            raise serializers.ValidationError(
-                "Site URL must be a valid Atlassian Cloud domain (e.g., company.atlassian.net)."
-            )
+            raise serializers.ValidationError(ProjectMessages.ATL_DOMAIN_REQUIRED)
 
         return f"https://{host}"
 
@@ -105,18 +102,14 @@ class ProjectSerializer(serializers.ModelSerializer):
         if self.instance:
             if "site_url" in attrs and attrs["site_url"] != self.instance.site_url:
                 raise serializers.ValidationError(
-                    {
-                        "site_url": "You cannot change the Site URL once a project is linked."
-                    }
+                    {"site_url": ProjectMessages.IMMUTABLE_SITE}
                 )
             if (
                 "jira_project_key" in attrs
                 and attrs["jira_project_key"] != self.instance.jira_project_key
             ):
                 raise serializers.ValidationError(
-                    {
-                        "jira_project_key": "You cannot change the Project Key after creation."
-                    }
+                    {"jira_project_key": ProjectMessages.IMMUTABLE_KEY}
                 )
 
         else:
@@ -125,9 +118,7 @@ class ProjectSerializer(serializers.ModelSerializer):
             if ProjectModel.all_objects.filter(
                 jira_project_key=key, site_url=url
             ).exists():
-                raise serializers.ValidationError(
-                    "This project key already exists for this site URL."
-                )
+                raise serializers.ValidationError(ProjectMessages.DUPLICATE_PROJECT)
 
         return attrs
 
@@ -172,12 +163,12 @@ class InviteUserSerializer(serializers.Serializer):
             invitee = CustomUser.objects.get(user_id=attrs["user_id"])
             attrs["invitee"] = invitee
         except CustomUser.DoesNotExist:
-            raise serializers.ValidationError("User does not exist.")
+            raise serializers.ValidationError(ProjectMessages.USER_NOT_FOUND)
 
         if ProjectMember.objects.filter(
             project_id=project_id, user=invitee, status=MemberStatus.MEMBER
         ).exists():
-            raise serializers.ValidationError("User is already a member.")
+            raise serializers.ValidationError(ProjectMessages.ALREADY_MEMBER)
 
         ProjectInvitation.objects.filter(
             project_id=project_id, invitee=invitee, expires_at__lte=timezone.now()
@@ -232,8 +223,8 @@ class ProjectMemberSerializer(serializers.ModelSerializer):
                  otherwise 'member'.
         """
         if obj.project.owner_id == obj.user_id:
-            return "owner"
-        return "admin" if obj.is_admin else "member"
+            return ProjectRole.OWNER
+        return ProjectRole.ADMIN if obj.is_admin else ProjectRole.MEMBER
 
 
 class ProjectUserMembershipSerializer(UserSerializer):

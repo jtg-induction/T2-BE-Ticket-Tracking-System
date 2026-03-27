@@ -9,3 +9,13 @@ class MemberStatus(models.TextChoices):
     INVITED = "invited", "Invited"
     MEMBER = "member", "Member"
     LEFT = "left", "Left"
+
+
+class ProjectRole(models.TextChoices):
+    """
+    Roles within a project context.
+    """
+
+    OWNER = "owner", "Owner"
+    ADMIN = "admin", "Admin"
+    MEMBER = "member", "Member"

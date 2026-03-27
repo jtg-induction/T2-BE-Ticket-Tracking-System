@@ -35,7 +35,7 @@ class CommentAPITests(APITestCase):
             "ticket-comment-list", kwargs={"ticket_pk": self.ticket.id}
         )
 
-    @patch("core.services.JiraProjectService.add_comment_to_jira")
+    @patch("core.services.jira.JiraProjectService.add_comment_to_jira")
     def test_create_comment_success(self, mock_jira_add):
         """Test creating a comment locally and syncing with Jira."""
         mock_jira_add.return_value = "jira-comment-789"
@@ -50,7 +50,7 @@ class CommentAPITests(APITestCase):
         self.assertEqual(comment.message, "This is a test comment.")
         self.assertEqual(comment.commentator, self.user)
 
-    @patch("core.services.JiraProjectService.update_jira_comment")
+    @patch("core.services.jira.JiraProjectService.update_jira_comment")
     def test_update_comment_owner(self, mock_jira_update):
         """Owner can update their comment."""
         comment = G(

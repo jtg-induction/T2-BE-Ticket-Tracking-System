@@ -7,8 +7,9 @@ from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
+from core.constants import MAX_PAGE_SIZE, PAGE_SIZE
 from core.renders import StandardizedJSONRenderer
-from core.services import JiraProjectService
+from core.services.jira import JiraProjectService
 from project.enums import MemberStatus
 from project.models import ProjectMember, ProjectModel
 from ticket.models import Ticket
@@ -20,8 +21,8 @@ from ticket.utils import map_jira_to_ticket
 class TicketPagination(PageNumberPagination):
     page_query_param = "page"
     page_size_query_param = "page_size"
-    page_size = 10
-    max_page_size = 100
+    page_size = PAGE_SIZE
+    max_page_size = MAX_PAGE_SIZE
 
 
 class TicketViewSet(viewsets.ModelViewSet):
@@ -37,7 +38,14 @@ class TicketViewSet(viewsets.ModelViewSet):
 
     filterset_fields = ["status", "priority", "category", "project"]
     search_fields = ["name", "description", "jira_id"]
-    ordering_fields = ["created_at", "deadline", "priority", "status"]
+    ordering_fields = [
+        "created_at",
+        "deadline",
+        "priority",
+        "status",
+        "jira_id",
+        "name",
+    ]
     ordering = ["-created_at"]
 
     def get_queryset(self):

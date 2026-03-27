@@ -7,7 +7,7 @@ from rest_framework import serializers
 
 from comment.tasks import sync_comments_in_batches
 from config.celery import app
-from core.services import JiraProjectService
+from core.services.jira import JiraProjectService
 from notifications.models import Notifications
 from notifications.tasks import (
     run_assignee_notification,
@@ -16,7 +16,9 @@ from notifications.tasks import (
 )
 from project.enums import MemberStatus
 from project.models import ProjectMember, ProjectModel
-from ticket.enums import Category, Status
+from project.serializers import ProjectSerializer
+from ticket.constants import TicketConstants, TicketMessages
+from ticket.enums import Category, Priority, Status
 from ticket.models import Ticket
 from user.serializers import UserSerializer
 
@@ -33,6 +35,7 @@ class TicketSerializer(serializers.ModelSerializer):
     project = serializers.PrimaryKeyRelatedField(
         queryset=ProjectModel.objects.all(), required=False
     )
+    project_details = ProjectSerializer(source="project", read_only=True)
     ticket_role = serializers.SerializerMethodField()
     is_project_archived = serializers.BooleanField(
         source="project.is_archived", read_only=True
@@ -77,7 +80,9 @@ class TicketSerializer(serializers.ModelSerializer):
 
         if self.instance and value == Status.CLOSED:
             if user != self.instance.reporter:
-                raise serializers.ValidationError("You can not close the ticket.")
+                raise serializers.ValidationError(
+                    TicketMessages.STATUS_TRANSITION_DENIED
+                )
 
         return value
 
@@ -116,12 +121,12 @@ class TicketSerializer(serializers.ModelSerializer):
                 and reporter.user_id not in valid_member_ids
             ):
                 raise serializers.ValidationError(
-                    {"reporter": "User is not a member of this project."}
+                    {"reporter": TicketMessages.MEMBER_REQUIRED_REPORTER}
                 )
 
             if assignee and assignee.user_id not in valid_member_ids:
                 raise serializers.ValidationError(
-                    {"assignee": "User is not a member of this project."}
+                    {"assignee": TicketMessages.MEMBER_REQUIRED_ASSIGNEE}
                 )
 
         if (
@@ -130,23 +135,23 @@ class TicketSerializer(serializers.ModelSerializer):
             and data["reporter"] != self.instance.reporter
         ):
             raise serializers.ValidationError(
-                {"reporter": "Reporter cannot be changed."}
+                {"reporter": TicketMessages.REPORTER_IMMUTABLE}
             )
 
         if self.instance and self.instance.project.is_archived:
             raise serializers.ValidationError(
-                {"project": "Cannot edit an archived project."}
+                {"project": TicketMessages.PROJECT_ARCHIVED}
             )
 
         new_project = data.get("project")
         if self.instance and new_project and new_project.id != self.instance.project_id:
             if new_project.is_archived:
                 raise serializers.ValidationError(
-                    {"project": "Target project is archived."}
+                    {"project": TicketMessages.TARGET_PROJECT_ARCHIVED}
                 )
             if new_project.site_url != self.instance.project.site_url:
                 raise serializers.ValidationError(
-                    {"project": "Cannot move ticket to a different Jira site."}
+                    {"project": TicketMessages.SITE_MISMATCH}
                 )
 
         return data
@@ -174,7 +179,7 @@ class TicketSerializer(serializers.ModelSerializer):
             description=validated_data.get("description", ""),
             reporter_id=reporter.jira_id,
             category=validated_data["category"],
-            priority=validated_data.get("priority", "Medium"),
+            priority=validated_data.get("priority", Priority.MEDIUM),
             due_date=formatted_deadline,
             status_name=requested_status,
         )
@@ -320,23 +325,23 @@ class TicketSerializer(serializers.ModelSerializer):
         """
         user = self.context.get("request").user
         if not user or user.is_anonymous:
-            return "guest"
+            return TicketConstants.ROLE_GUEST
 
         if user == obj.reporter:
-            return "reporter"
+            return TicketConstants.ROLE_REPORTER
 
         membership = self.context.get("user_membership")
 
         if membership and membership.is_admin:
-            return "admin"
+            return TicketConstants.ROLE_ADMIN
 
         if user == obj.assignee:
-            return "assignee"
+            return TicketConstants.ROLE_ASSIGNEE
 
         if membership:
-            return "member"
+            return TicketConstants.ROLE_MEMBER
 
-        return "none"
+        return TicketConstants.ROLE_NONE
 
 
 class JiraImportSerializer(serializers.Serializer):
@@ -357,7 +362,7 @@ class JiraImportSerializer(serializers.Serializer):
         Prevents duplicate imports of the same Jira ticket.
         """
         if Ticket.objects.filter(jira_id=value).exists():
-            raise serializers.ValidationError("This ticket has already been imported.")
+            raise serializers.ValidationError(TicketMessages.ALREADY_IMPORTED)
         return value
 
     def save(self, user, project, mapper_func):
@@ -384,7 +389,7 @@ class JiraImportSerializer(serializers.Serializer):
         issues = response_data.get("issues", [])
 
         if not issues:
-            raise serializers.ValidationError({"Ticket not found or no access."})
+            raise serializers.ValidationError({TicketMessages.TICKET_NOT_FOUND})
 
         issue_data = issues[0]
 
@@ -404,9 +409,7 @@ class JiraImportSerializer(serializers.Serializer):
 
             if not reporter:
                 raise serializers.ValidationError(
-                    {
-                        "reporter": "The reporter of this ticket is not part of our environment"
-                    }
+                    {"reporter": TicketMessages.REPORTER_NOT_FOUND}
                 )
 
         ticket, created = Ticket.objects.update_or_create(

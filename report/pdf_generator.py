@@ -15,6 +15,7 @@ from reportlab.platypus import (
 )
 
 from core.constants import ACCENT_RED, PRIMARY_COLOR, SECONDARY_COLOR
+from report.constants import ReportConstants
 from ticket.enums import Priority
 
 
@@ -79,7 +80,7 @@ class TicketReportPDF:
         elements = []
         p_labels = [p.label for p in Priority]
 
-        elements.append(Paragraph("Ticket Intelligence Report", self.styles["Title"]))
+        elements.append(Paragraph(ReportConstants.REPORT_TITLE, self.styles["Title"]))
         meta = self.report_data.get("metadata", {})
         if meta:
             meta_text = (
@@ -91,16 +92,16 @@ class TicketReportPDF:
         elements.append(Spacer(1, 15))
 
         elements.append(
-            Paragraph("1 & 2. Status and Priority Distribution", self.header_style)
+            Paragraph(ReportConstants.SECTION_DISTRIBUTION, self.header_style)
         )
 
-        status_rows = [["Status", "Count"]] + [
+        status_rows = [[ReportConstants.COL_STATUS, ReportConstants.COL_COUNT]] + [
             [i["name"], i["count"]] for i in self.report_data.get("status_stats", [])
         ]
         t_status = Table(status_rows, colWidths=[1.4 * inch, 0.7 * inch])
         t_status.setStyle(self._apply_theme())
 
-        priority_rows = [["Priority", "Count"]] + [
+        priority_rows = [[ReportConstants.COL_PRIORITY, ReportConstants.COL_COUNT]] + [
             [i["name"], i["count"]] for i in self.report_data.get("priority_stats", [])
         ]
         t_priority = Table(priority_rows, colWidths=[1.4 * inch, 0.7 * inch])
@@ -116,9 +117,9 @@ class TicketReportPDF:
         elements.append(Spacer(1, 20))
 
         elements.append(
-            Paragraph("3. Efficiency & Completion Metrics", self.header_style)
+            Paragraph(ReportConstants.SECTION_EFFICIENCY, self.header_style)
         )
-        eff_rows = [["Metric"] + p_labels]
+        eff_rows = [[ReportConstants.COL_METRIC] + p_labels]
         for item in self.report_data.get("efficiency_stats", []):
             eff_rows.append(
                 [item["label"]] + [item.get(label, 0) for label in p_labels]
@@ -135,9 +136,9 @@ class TicketReportPDF:
         timeline = self.report_data.get("timeline_stats", [])
         if timeline:
             elements.append(
-                Paragraph("4. Historical Timeline Trends", self.header_style)
+                Paragraph(ReportConstants.SECTION_TIMELINE, self.header_style)
             )
-            time_rows = [["Period"] + p_labels]
+            time_rows = [[ReportConstants.COL_PERIOD] + p_labels]
             for item in timeline:
                 time_rows.append(
                     [item.get("label")] + [item.get(label, 0) for label in p_labels]
@@ -154,18 +155,18 @@ class TicketReportPDF:
         if tickets:
             elements.append(PageBreak())
             elements.append(
-                Paragraph("5. Detailed Ticket Inventory", self.header_style)
+                Paragraph(ReportConstants.SECTION_INVENTORY, self.header_style)
             )
 
             header = [
-                "Ticket Name",
-                "Project",
-                "Jira ID",
-                "Status",
-                "Assignee Email",
-                "Reporter Email",
-                "Updated At",
-                "Spilled",
+                ReportConstants.COL_TICKET_NAME,
+                ReportConstants.COL_PROJECT,
+                ReportConstants.COL_JIRA_ID,
+                ReportConstants.COL_STATUS,
+                ReportConstants.COL_ASSIGNEE,
+                ReportConstants.COL_REPORTER,
+                ReportConstants.COL_UPDATED,
+                ReportConstants.COL_SPILLED,
             ]
             rows = [header]
 
@@ -178,7 +179,7 @@ class TicketReportPDF:
                 rows.append(
                     [
                         (t["name"][:30] + "..") if len(t["name"]) > 30 else t["name"],
-                        t.get("project_title", "All Projects")[:15],
+                        t.get("project_title", ReportConstants.ALL_PROJECTS)[:15],
                         t.get("jira_id"),
                         t.get("status"),
                         t.get("assignee_email") or "N/A",

@@ -15,8 +15,9 @@ from django.db.models.functions import Concat
 from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
-from core.services import JiraProjectService
-from project.enums import MemberStatus
+from core.services.jira import JiraProjectService
+from project.constants import ProjectMessages
+from project.enums import MemberStatus, ProjectRole
 from project.models import ProjectInvitation, ProjectMember
 from project.tasks import send_invitation_email
 from user.models import CustomUser
@@ -37,7 +38,7 @@ class ProjectService:
             )
 
             if not created:
-                raise ValidationError("Invitation already exists for this user.")
+                raise ValidationError(ProjectMessages.INVITE_EXISTS)
 
             invite_url = f"{settings.CLIENT_URL}/accept-invite/{invitation.token}"
 
@@ -56,13 +57,13 @@ class ProjectService:
         try:
             invitation = ProjectInvitation.objects.get(token=token)
         except ProjectInvitation.DoesNotExist:
-            raise ValidationError("Invalid token")
+            raise ValidationError(ProjectMessages.INVALID_TOKEN)
 
         if invitation.invitee != request_user:
-            raise PermissionDenied("This invitation is not for you.")
+            raise PermissionDenied(ProjectMessages.NOT_YOUR_INVITE)
 
         if not invitation.is_valid:
-            raise ValidationError("Expired or invalid invitation.")
+            raise ValidationError(ProjectMessages.INVITE_EXPIRED)
 
         JiraProjectService.add_user_to_jira_project(
             user=invitation.invited_by,
@@ -98,7 +99,7 @@ class ProjectService:
         )
 
         with transaction.atomic():
-            if new_role == "owner":
+            if new_role == ProjectRole.OWNER:
                 ProjectMember.objects.filter(project=project, user=requester).update(
                     is_admin=True
                 )
@@ -106,7 +107,7 @@ class ProjectService:
                 project.save()
                 target_member.is_admin = True
             else:
-                target_member.is_admin = new_role == "admin"
+                target_member.is_admin = new_role == ProjectRole.ADMIN
             target_member.save()
 
     @staticmethod
@@ -115,7 +116,7 @@ class ProjectService:
             ProjectMember, project=project, user_id=target_user_id
         )
         if str(requester.user_id) == str(target_user_id) and project.owner == requester:
-            raise ValidationError("Owner cannot leave without transferring ownership.")
+            raise ValidationError(ProjectMessages.OWNER_CANNOT_LEAVE)
 
         JiraProjectService.remove_user_from_jira_project(
             user=requester, project=project, target_user=target_member.user
@@ -129,7 +130,7 @@ class ProjectService:
             token=token, invitee=request_user, is_accepted=False
         ).first()
         if not invitation:
-            raise ValidationError("Invitation not found.")
+            raise ValidationError(ProjectMessages.INVITE_NOT_FOUND)
         invitation.delete()
 
     @staticmethod
