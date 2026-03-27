@@ -9,7 +9,7 @@ from rest_framework import serializers
 from core.services.jira import JiraProjectService
 from project.constants import ProjectMessages
 from project.enums import MemberStatus, ProjectRole
-from project.models import ProjectInvitation, ProjectMember, ProjectModel
+from project.models import Project, ProjectInvitation, ProjectMember
 from project.services import ProjectService
 from user.models import CustomUser
 from user.serializers import UserSerializer
@@ -28,7 +28,7 @@ class ProjectSerializer(serializers.ModelSerializer):
     can_edit = serializers.SerializerMethodField()
 
     class Meta:
-        model = ProjectModel
+        model = Project
         fields = [
             "id",
             "title",
@@ -115,16 +115,14 @@ class ProjectSerializer(serializers.ModelSerializer):
         else:
             key = attrs.get("jira_project_key")
             url = attrs.get("site_url")
-            if ProjectModel.all_objects.filter(
-                jira_project_key=key, site_url=url
-            ).exists():
+            if Project.all_objects.filter(jira_project_key=key, site_url=url).exists():
                 raise serializers.ValidationError(ProjectMessages.DUPLICATE_PROJECT)
 
         return attrs
 
     def create(self, validated_data):
         """
-        Creates a local ProjectModel instance and its remote Jira counterpart.
+        Creates a local Project instance and its remote Jira counterpart.
         """
         user = self.context["request"].user
 
@@ -132,7 +130,7 @@ class ProjectSerializer(serializers.ModelSerializer):
 
         with transaction.atomic():
             validated_data["jira_id"] = jira_id
-            project = ProjectModel.objects.create_with_user(user=user, **validated_data)
+            project = Project.objects.create_with_user(user=user, **validated_data)
             return project
 
     def update(self, instance, validated_data):
@@ -180,7 +178,7 @@ class InviteUserSerializer(serializers.Serializer):
         """
         Delegates to service layer for the actual creation and email dispatch.
         """
-        project = get_object_or_404(ProjectModel, id=self.context.get("project_id"))
+        project = get_object_or_404(Project, id=self.context.get("project_id"))
         return ProjectService.create_invitation(
             project=project,
             invited_by=self.context.get("request").user,

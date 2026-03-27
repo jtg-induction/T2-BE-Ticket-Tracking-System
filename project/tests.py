@@ -10,7 +10,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from project.enums import MemberStatus
-from project.models import ProjectInvitation, ProjectMember, ProjectModel
+from project.models import Project, ProjectInvitation, ProjectMember
 
 User = get_user_model()
 
@@ -29,7 +29,7 @@ class ProjectAPITests(APITestCase):
         self.list_create_url = reverse("project-list")
 
         self.project = G(
-            ProjectModel,
+            Project,
             title="Base Project",
             jira_id="J-BASE",
             jira_project_key="BASE",
@@ -62,7 +62,7 @@ class ProjectAPITests(APITestCase):
 
     def test_list_projects_pagination(self):
         for i in range(3):
-            ProjectModel.objects.create_with_user(
+            Project.objects.create_with_user(
                 user=self.user,
                 title=f"Project {i}",
                 jira_id=f"J-{i}",
@@ -78,7 +78,7 @@ class ProjectAPITests(APITestCase):
         self.assertEqual(len(data["data"]), 3)
 
     def test_security_access_denied(self):
-        G(ProjectModel, owner=self.user)
+        G(Project, owner=self.user)
 
         user_b = G(User, email="userb@test.com")
         self.client.force_authenticate(user=user_b)
@@ -215,7 +215,7 @@ class ProjectMemberAPITests(APITestCase):
         self.member = G(User, email="member@test.com")
 
         self.project = G(
-            ProjectModel,
+            Project,
             jira_project_key="MEM",
             owner=self.owner,
         )

@@ -1,7 +1,7 @@
 from rest_framework import permissions
 
 from project.enums import MemberStatus
-from project.models import ProjectMember, ProjectModel
+from project.models import Project, ProjectMember
 
 
 class IsProjectAdmin(permissions.BasePermission):
@@ -10,7 +10,7 @@ class IsProjectAdmin(permissions.BasePermission):
     """
 
     def has_object_permission(self, request, view, obj):
-        project = obj if isinstance(obj, ProjectModel) else obj.project
+        project = obj if isinstance(obj, Project) else obj.project
 
         if project.owner == request.user:
             return True
@@ -29,5 +29,5 @@ class IsProjectOwner(permissions.BasePermission):
     """
 
     def has_object_permission(self, request, view, obj):
-        project = obj if isinstance(obj, ProjectModel) else obj.project
+        project = obj if isinstance(obj, Project) else obj.project
         return project.owner == request.user

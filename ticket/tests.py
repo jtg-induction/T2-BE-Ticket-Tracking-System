@@ -6,7 +6,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from project.enums import MemberStatus
-from project.models import ProjectMember, ProjectModel
+from project.models import Project, ProjectMember
 from ticket.enums import Category, Priority, Status
 from ticket.models import Ticket
 from user.models import CustomUser
@@ -23,7 +23,7 @@ class TicketServiceTestCase(APITestCase):
         self.outsider = G(CustomUser)
 
         self.project = G(
-            ProjectModel, owner=self.owner, site_url="https://alpha.atlassian.net"
+            Project, owner=self.owner, site_url="https://alpha.atlassian.net"
         )
 
         G(
@@ -98,7 +98,7 @@ class TicketServiceTestCase(APITestCase):
         """
         Verify that tickets cannot be moved to a project on a different Jira site.
         """
-        other_site_project = G(ProjectModel, site_url="https://different.atlassian.net")
+        other_site_project = G(Project, site_url="https://different.atlassian.net")
         ticket = G(Ticket, project=self.project)
 
         self.client.force_authenticate(user=self.owner)

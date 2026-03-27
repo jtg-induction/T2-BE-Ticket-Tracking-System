@@ -7,7 +7,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from project.enums import MemberStatus
-from project.models import ProjectMember, ProjectModel
+from project.models import Project, ProjectMember
 from report.constants import ReportConstants, ReportMessages
 from ticket.enums import Priority, Status
 from ticket.models import Ticket
@@ -45,7 +45,7 @@ class ReportSerializer(serializers.Serializer):
         params = request.query_params
 
         project_id = params.get("project")
-        if project_id and not ProjectModel.objects.filter(id=project_id).exists():
+        if project_id and not Project.objects.filter(id=project_id).exists():
             raise serializers.ValidationError(ReportMessages.PROJECT_NOT_FOUND)
 
         if self.include_details:
@@ -66,7 +66,7 @@ class ReportSerializer(serializers.Serializer):
 
             is_admin = False
             if project_id:
-                project = ProjectModel.objects.get(id=project_id)
+                project = Project.objects.get(id=project_id)
                 is_admin = (
                     project.owner == user
                     or ProjectMember.objects.filter(
@@ -95,7 +95,7 @@ class ReportSerializer(serializers.Serializer):
 
         project_name = ReportConstants.ALL_PROJECTS
         if project_id:
-            p = ProjectModel.objects.filter(id=project_id).first()
+            p = Project.objects.filter(id=project_id).first()
             project_name = p.title if p else "Unknown"
 
         return {

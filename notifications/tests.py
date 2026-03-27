@@ -12,7 +12,7 @@ from rest_framework.test import APITestCase
 
 from notifications.models import Notifications
 from project.enums import MemberStatus
-from project.models import ProjectMember, ProjectModel
+from project.models import Project, ProjectMember
 from ticket.models import Status, Ticket
 
 User = get_user_model()
@@ -22,7 +22,7 @@ class TicketUpdateNotificationTests(APITestCase):
     def setUp(self):
         self.user = G(User, email="anmol@test.com")
 
-        self.project = G(ProjectModel, owner=self.user)
+        self.project = G(Project, owner=self.user)
 
         G(
             ProjectMember,

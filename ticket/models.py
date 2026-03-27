@@ -4,7 +4,7 @@ from django.conf import settings
 from django.db import models
 
 from core.models import BaseModel
-from project.models import ProjectModel
+from project.models import Project
 from ticket.enums import Category, Priority, Status
 
 
@@ -35,7 +35,7 @@ class Ticket(BaseModel):
     )
 
     project = models.ForeignKey(
-        ProjectModel,
+        Project,
         on_delete=models.CASCADE,
         related_name="tickets",
     )

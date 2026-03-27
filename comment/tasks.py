@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from comment.models import CommentModel
 from core.services.jira import JiraProjectService
 from core.utils import ADFToMarkdownConverter
-from project.models import ProjectModel
+from project.models import Project
 from ticket.models import Ticket
 
 User = get_user_model()
@@ -30,7 +30,7 @@ def sync_comments_in_batches(ticket_id, user_id, project_id):
         3. If a Jira author doesn't exist locally, stores their name in `external_author_name`.
     """
     ticket = Ticket.objects.get(id=ticket_id)
-    project = ProjectModel.objects.get(id=project_id)
+    project = Project.objects.get(id=project_id)
     user = User.objects.get(user_id=user_id)
     client = JiraProjectService._get_client(user, project.site_url)
 

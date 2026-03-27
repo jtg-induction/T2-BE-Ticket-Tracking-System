@@ -1,9 +1,9 @@
 from django.contrib import admin
 
-from project.models import ProjectInvitation, ProjectMember, ProjectModel
+from project.models import Project, ProjectInvitation, ProjectMember
 
 
-@admin.register(ProjectModel)
+@admin.register(Project)
 class ProjectAdmin(admin.ModelAdmin):
     """
     Admin configuration for Jira Projects.

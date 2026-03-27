@@ -140,7 +140,7 @@ class JiraProjectService:
 
         Args:
             user (CustomUser): The user performing the update.
-            instance (ProjectModel): The existing project model instance.
+            instance (Project): The existing project model instance.
             validated_data (dict): The dictionary of updated fields.
         """
         client = cls._get_client(user, instance.site_url)

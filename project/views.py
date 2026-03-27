@@ -12,7 +12,7 @@ from core.renders import StandardizedJSONRenderer
 from core.utils import StandardizedPagination
 from project.constants import ProjectMessages
 from project.enums import MemberStatus, ProjectRole
-from project.models import ProjectMember, ProjectModel
+from project.models import Project, ProjectMember
 from project.permissions import IsProjectAdmin
 from project.serializers import (
     InviteUserSerializer,
@@ -35,7 +35,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     Provides endpoints for listing, retrieving, creating, and updating projects.
     """
 
-    queryset = ProjectModel.objects.all()
+    queryset = Project.objects.all()
     serializer_class = ProjectSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = StandardizedPagination
@@ -60,10 +60,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
         Returns the list of projects accessible to the current user.
 
         Returns:
-            QuerySet: A distinct queryset of ProjectModel instances.
+            QuerySet: A distinct queryset of Project instances.
         """
         user = self.request.user
-        base_qs = ProjectModel.objects.filter(
+        base_qs = Project.objects.filter(
             memberships__user=user, memberships__status=MemberStatus.MEMBER
         ).distinct()
 
@@ -80,7 +80,7 @@ class ProjectInvitationView(viewsets.GenericViewSet):
     serializer_class = InviteUserSerializer
 
     def invite(self, request, pk=None):
-        project = get_object_or_404(ProjectModel, pk=pk)
+        project = get_object_or_404(Project, pk=pk)
         if not IsProjectAdmin().has_object_permission(request, self, project):
             raise PermissionDenied(ProjectMessages.ADMIN_REQUIRED)
 
@@ -127,7 +127,7 @@ class ProjectMemberViewSet(viewsets.GenericViewSet):
         )
 
     def update_role(self, request, project_id=None, user_id=None):
-        project = get_object_or_404(ProjectModel, id=project_id)
+        project = get_object_or_404(Project, id=project_id)
         requester_membership = get_object_or_404(
             ProjectMember,
             project=project,
@@ -159,7 +159,7 @@ class ProjectMemberViewSet(viewsets.GenericViewSet):
         return Response({"detail": f"Role updated to {new_role}."})
 
     def remove_user(self, request, project_id=None, user_id=None):
-        project = get_object_or_404(ProjectModel, id=project_id)
+        project = get_object_or_404(Project, id=project_id)
         target_member = get_object_or_404(
             ProjectMember,
             project=project,

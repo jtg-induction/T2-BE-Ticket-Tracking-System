@@ -11,7 +11,7 @@ from core.constants import MAX_PAGE_SIZE, PAGE_SIZE
 from core.renders import StandardizedJSONRenderer
 from core.services.jira import JiraProjectService
 from project.enums import MemberStatus
-from project.models import ProjectMember, ProjectModel
+from project.models import ProjectMember
 from ticket.models import Ticket
 from ticket.permissions import IsProjectAdminOrReadOnly
 from ticket.serializers import JiraImportSerializer, TicketSerializer

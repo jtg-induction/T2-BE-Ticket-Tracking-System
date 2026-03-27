@@ -15,7 +15,7 @@ from notifications.tasks import (
     run_status_notification,
 )
 from project.enums import MemberStatus
-from project.models import ProjectMember, ProjectModel
+from project.models import Project, ProjectMember
 from project.serializers import ProjectSerializer
 from ticket.constants import TicketConstants, TicketMessages
 from ticket.enums import Category, Priority, Status
@@ -33,7 +33,7 @@ class TicketSerializer(serializers.ModelSerializer):
     """
 
     project = serializers.PrimaryKeyRelatedField(
-        queryset=ProjectModel.objects.all(), required=False
+        queryset=Project.objects.all(), required=False
     )
     project_details = ProjectSerializer(source="project", read_only=True)
     ticket_role = serializers.SerializerMethodField()

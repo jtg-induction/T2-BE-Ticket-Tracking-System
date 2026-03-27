@@ -8,7 +8,7 @@ from rest_framework.test import APITestCase
 
 from comment.models import CommentModel
 from project.enums import MemberStatus
-from project.models import ProjectMember, ProjectModel
+from project.models import Project, ProjectMember
 from ticket.models import Ticket
 
 User = get_user_model()
@@ -19,7 +19,7 @@ class CommentAPITests(APITestCase):
         self.user = G(User, email="anmol@example.com", first_name="Anmol")
         self.other_user = G(User, email="other@example.com")
 
-        self.project = G(ProjectModel, owner=self.user, is_archived=False)
+        self.project = G(Project, owner=self.user, is_archived=False)
 
         G(
             ProjectMember,

@@ -13,7 +13,7 @@ from project.enums import MemberStatus
 
 class ProjectManager(SoftDeleteManager):
     """
-    Custom Manager for ProjectModel handling soft deletes and initialization.
+    Custom Manager for Project handling soft deletes and initialization.
     """
 
     def create_with_user(self, user, **project_data):
@@ -40,7 +40,7 @@ class ProjectMember(BaseModel):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(
-        "ProjectModel", on_delete=models.CASCADE, related_name="memberships"
+        "Project", on_delete=models.CASCADE, related_name="memberships"
     )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -62,7 +62,7 @@ class ProjectMember(BaseModel):
         ]
 
 
-class ProjectModel(BaseModel):
+class Project(BaseModel):
     """
     Represents a Jira Project instance linked to a specific Atlassian Site URL.
     """
@@ -106,7 +106,7 @@ class ProjectInvitation(BaseModel):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(
-        "ProjectModel", on_delete=models.CASCADE, related_name="invitations"
+        "Project", on_delete=models.CASCADE, related_name="invitations"
     )
     invitee = models.ForeignKey(
         settings.AUTH_USER_MODEL,
