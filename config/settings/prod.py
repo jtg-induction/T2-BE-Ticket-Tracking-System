@@ -15,9 +15,6 @@ CORS_ALLOW_ALL_ORIGINS = False
 
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
 
-if "storages" not in INSTALLED_APPS:
-    INSTALLED_APPS.append("storages")
-
 DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
 
 AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID")

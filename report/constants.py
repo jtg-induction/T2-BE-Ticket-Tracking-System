@@ -5,6 +5,8 @@ class ReportMessages:
 
     PROJECT_NOT_FOUND = "Project not found."
     PERMISSION_DENIED = "You don't have permission to see detailed ticket data."
+    FILE_NOT_FOUND = "File {filename} not found at {path}"
+    GENERATION_STARTED = "Report generation started."
 
 
 class ReportConstants:
@@ -37,3 +39,7 @@ class ReportConstants:
     LABEL_MISSED_DEADLINE = "Missed Deadline"
     LABEL_NO_DEADLINE = "Completed (No Deadline)"
     ALL_PROJECTS = "All Projects"
+
+    REPORTS_DIR = "reports"
+    PDF_CONTENT_TYPE = "application/pdf"
+    FETCH_URL_PATH = "fetch/(?P<filename>[^/]+)"

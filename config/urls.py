@@ -19,12 +19,11 @@ from django.contrib import admin
 from django.urls import include, path
 
 api_urls = [
-    path("", include("user.urls")),
-    path("project/", include("project.urls")),
-    path("", include("ticket.urls")),
-    path("", include("comment.urls")),
-    path("", include("notifications.urls")),
-    path("report/", include("report.urls")),
+    path("", include("user.urls.urls")),
+    path("project/", include("project.urls.urls")),
+    path("", include("ticket.urls.urls")),
+    path("", include("notifications.urls.urls")),
+    path("report/", include("report.urls.urls")),
 ]
 
 urlpatterns = [

@@ -43,7 +43,7 @@ class TicketUpdateNotificationTests(APITestCase):
         self.client.force_authenticate(user=self.user)
         self.url = reverse(
             "ticket-detail",
-            kwargs={"project_pk": self.project.id, "pk": self.ticket.id},
+            kwargs={"project_id": self.project.id, "pk": self.ticket.id},
         )
 
     @contextmanager

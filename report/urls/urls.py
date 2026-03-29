@@ -1,7 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from .views import DownloadReportViewSet, TicketReportView
+from report.views import DownloadReportViewSet, TicketReportView
 
 router = DefaultRouter()
 router.register("download", DownloadReportViewSet, basename="download-report")

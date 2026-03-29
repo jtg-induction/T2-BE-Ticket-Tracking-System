@@ -35,7 +35,7 @@ class TicketServiceTestCase(APITestCase):
         )
 
         self.list_create_url = reverse(
-            "ticket-list", kwargs={"project_pk": self.project.id}
+            "ticket-list", kwargs={"project_id": self.project.id}
         )
 
     @patch("core.services.jira.JiraProjectService.create_jira_task")
@@ -68,7 +68,7 @@ class TicketServiceTestCase(APITestCase):
 
         self.client.force_authenticate(user=self.member)
         url = reverse(
-            "ticket-detail", kwargs={"project_pk": self.project.id, "pk": ticket.id}
+            "ticket-detail", kwargs={"project_id": self.project.id, "pk": ticket.id}
         )
 
         response = self.client.patch(url, {"status": Status.CLOSED})
@@ -85,7 +85,7 @@ class TicketServiceTestCase(APITestCase):
 
         self.client.force_authenticate(user=self.member)
         url = reverse(
-            "ticket-detail", kwargs={"project_pk": self.project.id, "pk": ticket.id}
+            "ticket-detail", kwargs={"project_id": self.project.id, "pk": ticket.id}
         )
 
         response = self.client.patch(url, {"status": Status.CLOSED})
@@ -103,7 +103,7 @@ class TicketServiceTestCase(APITestCase):
 
         self.client.force_authenticate(user=self.owner)
         url = reverse(
-            "ticket-detail", kwargs={"project_pk": self.project.id, "pk": ticket.id}
+            "ticket-detail", kwargs={"project_id": self.project.id, "pk": ticket.id}
         )
 
         response = self.client.patch(url, {"project": str(other_site_project.id)})
@@ -135,7 +135,7 @@ class TicketServiceTestCase(APITestCase):
         self.client.force_authenticate(user=self.outsider)
 
         url = reverse(
-            "ticket-detail", kwargs={"project_pk": self.project.id, "pk": ticket.id}
+            "ticket-detail", kwargs={"project_id": self.project.id, "pk": ticket.id}
         )
 
         response = self.client.get(url)

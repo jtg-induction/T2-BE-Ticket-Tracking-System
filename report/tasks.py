@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 
+from report.constants import ReportConstants
 from report.pdf_generator import TicketReportPDF
 from report.serializers import ReportSerializer
 
@@ -30,7 +31,7 @@ def generate_ticket_report_task(self, query_params, user_id):
     pdf_gen = TicketReportPDF(serializer.data)
     pdf_buffer = pdf_gen.generate()
 
-    filename = f"reports/Ticket_Report_{uuid.uuid4()}.pdf"
+    filename = f"{ReportConstants.REPORTS_DIR}/Ticket_Report_{uuid.uuid4()}.pdf"
     saved_path = default_storage.save(filename, ContentFile(pdf_buffer.getvalue()))
 
     return default_storage.url(saved_path)
