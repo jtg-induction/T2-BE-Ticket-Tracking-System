@@ -38,8 +38,8 @@ class JiraProjectService:
 
         try:
             data = response.json()
-            if data.get("errorMessages"):
-                error_detail = " ".join(data["errorMessages"])
+            if data.get("errorMessage"):
+                error_detail = data["errorMessage"]
             elif data.get("errors") and isinstance(data["errors"], dict):
                 error_detail = ", ".join(
                     [f"{k}: {v}" for k, v in data["errors"].items()]

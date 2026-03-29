@@ -1,8 +1,12 @@
-from django.urls import path
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
 
-from report.views import DownloadReportPDFView, TicketReportView
+from .views import DownloadReportViewSet, TicketReportView
+
+router = DefaultRouter()
+router.register("download", DownloadReportViewSet, basename="download-report")
 
 urlpatterns = [
     path("", TicketReportView.as_view(), name="generate-report"),
-    path("download/", DownloadReportPDFView.as_view(), name="download-report"),
+    path("", include(router.urls)),
 ]

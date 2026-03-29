@@ -129,7 +129,10 @@ class ProjectMemberViewSet(viewsets.GenericViewSet):
     def update_role(self, request, project_id=None, user_id=None):
         project = get_object_or_404(ProjectModel, id=project_id)
         requester_membership = get_object_or_404(
-            ProjectMember, project=project, user=request.user
+            ProjectMember,
+            project=project,
+            user=request.user,
+            status=MemberStatus.MEMBER,
         )
 
         role_input = request.data.get("role") or request.data.get("projectRole")
@@ -158,13 +161,19 @@ class ProjectMemberViewSet(viewsets.GenericViewSet):
     def remove_user(self, request, project_id=None, user_id=None):
         project = get_object_or_404(ProjectModel, id=project_id)
         target_member = get_object_or_404(
-            ProjectMember, project=project, user_id=user_id
+            ProjectMember,
+            project=project,
+            user_id=user_id,
+            status=MemberStatus.MEMBER,
         )
 
         is_self = str(request.user.user_id) == str(user_id)
         if not is_self:
             requester_mem = get_object_or_404(
-                ProjectMember, project=project, user=request.user
+                ProjectMember,
+                project=project,
+                user=request.user,
+                status=MemberStatus.MEMBER,
             )
             can_kick = (project.owner == request.user) or (
                 requester_mem.is_admin and not target_member.is_admin
