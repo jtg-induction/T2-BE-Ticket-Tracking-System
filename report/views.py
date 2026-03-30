@@ -1,7 +1,7 @@
 import os
 
 from celery.result import AsyncResult
-from django.conf import settings
+from django.core.files.storage import default_storage
 from django.http import FileResponse, Http404
 from django.urls import reverse
 from rest_framework import status, viewsets
@@ -64,19 +64,21 @@ class DownloadReportViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=["get"], url_path=ReportConstants.FETCH_URL_PATH)
     def fetch_pdf(self, request, filename):
-        """Serves the actual PDF file from storage."""
-        file_path = os.path.join(
-            settings.MEDIA_ROOT, ReportConstants.REPORTS_DIR, filename
-        )
+        """Serves the actual PDF file from S3 storage."""
 
-        if not os.path.exists(file_path):
+        file_path = f"{ReportConstants.REPORTS_DIR}/{filename}"
+
+        if not default_storage.exists(file_path):
             raise Http404(
                 ReportMessages.FILE_NOT_FOUND.format(filename=filename, path=file_path)
             )
 
-        file_handle = open(file_path, "rb")
+        file_handle = default_storage.open(file_path, "rb")
+
         response = FileResponse(
             file_handle, content_type=ReportConstants.PDF_CONTENT_TYPE
         )
+
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
+
         return response
