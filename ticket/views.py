@@ -1,4 +1,4 @@
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status, viewsets
@@ -10,8 +10,9 @@ from rest_framework.response import Response
 from core.constants import MAX_PAGE_SIZE, PAGE_SIZE
 from core.renders import StandardizedJSONRenderer
 from core.services.jira import JiraProjectService
+from notifications.models import Notifications
 from project.enums import MemberStatus
-from project.models import ProjectMember
+from project.models import Project, ProjectMember
 from ticket.models import Ticket
 from ticket.permissions import IsProjectAdminOrReadOnly
 from ticket.serializers import JiraImportSerializer, TicketSerializer
@@ -58,14 +59,21 @@ class TicketViewSet(viewsets.ModelViewSet):
         """
 
         user = self.request.user
+        subscribed_subquery = Notifications.objects.filter(
+            ticket=OuterRef("pk"), subscriber=user, is_deleted=False
+        )
 
-        queryset = Ticket.objects.filter(
-            project_id=self.kwargs["project_id"], is_deleted=False
-        ).select_related("reporter", "assignee", "project", "project__owner")
+        queryset = (
+            Ticket.objects.filter(
+                project_id=self.kwargs["project_id"], is_deleted=False
+            )
+            .select_related("reporter", "assignee", "project", "project__owner")
+            .annotate(annotated_is_subscribed=Exists(subscribed_subquery))
+        )
 
         self.user_membership = ProjectMember.objects.filter(
             user=user, project_id=self.kwargs["project_id"], status=MemberStatus.MEMBER
-        ).first()
+        )
 
         return queryset
 
@@ -89,7 +97,7 @@ class TicketViewSet(viewsets.ModelViewSet):
         """
         Persists a new ticket instance linked to the current project.
         """
-        project_instance = get_object_or_404(ProjectModel, pk=self.kwargs["project_id"])
+        project_instance = get_object_or_404(Project, pk=self.kwargs["project_id"])
         serializer.save(project=project_instance)
 
     def list_all_tickets(self, request, project_id=None):
@@ -134,7 +142,7 @@ class JiraTicketViewSet(viewsets.GenericViewSet):
         cursor = request.query_params.get("cursor", None)
         max_results = request.query_params.get("max_results", 50)
 
-        project = get_object_or_404(ProjectModel, pk=project_id)
+        project = get_object_or_404(Project, pk=project_id)
 
         jira_data = JiraProjectService.search_jira_tickets(
             user=request.user,
@@ -176,7 +184,7 @@ class JiraTicketViewSet(viewsets.GenericViewSet):
         Ensures the ticket doesn't already exist and that the reporter is
         a registered user in the local environment.
         """
-        project = get_object_or_404(ProjectModel, pk=project_id)
+        project = get_object_or_404(Project, pk=project_id)
 
         serializer = JiraImportSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

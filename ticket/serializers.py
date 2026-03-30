@@ -61,7 +61,8 @@ class TicketSerializer(serializers.ModelSerializer):
         return obj.pk is not None
 
     def get_is_subscribed(self, obj):
-        is_subscribed = getattr(obj, "is_subscribed", None)
+        is_subscribed = getattr(obj, "annotated_is_subscribed", None)
+
         if is_subscribed is not None:
             return is_subscribed
 

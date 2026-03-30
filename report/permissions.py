@@ -1,7 +1,7 @@
 from rest_framework import permissions
 
 from project.enums import MemberStatus
-from project.models import ProjectMember, ProjectModel
+from project.models import Project, ProjectMember
 
 
 class IsProjectMember(permissions.BasePermission):
@@ -16,7 +16,7 @@ class IsProjectMember(permissions.BasePermission):
         if not project_id:
             return True
 
-        if ProjectModel.objects.filter(id=project_id, owner=request.user).exists():
+        if Project.objects.filter(id=project_id, owner=request.user).exists():
             return True
 
         return ProjectMember.objects.filter(
