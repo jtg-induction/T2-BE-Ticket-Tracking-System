@@ -4,17 +4,19 @@ from rest_framework import status, viewsets
 from rest_framework.pagination import CursorPagination
 from rest_framework.response import Response
 
+from comment.constants import CommentMessages
 from comment.models import CommentModel
 from comment.permissions import CommentPermission
 from comment.serializers import CommentSerializer
+from core.constants import PAGE_SIZE
 from core.renders import StandardizedJSONRenderer
-from core.services import JiraProjectService
+from core.services.jira import JiraProjectService
 from project.enums import MemberStatus
 from ticket.models import Ticket
 
 
 class CommentCursorPagination(CursorPagination):
-    page_size = 5
+    page_size = PAGE_SIZE
     page_size_query_param = "page_size"
     max_page_size = 100
     ordering = "created_at"
@@ -113,6 +115,6 @@ class CommentViewSet(viewsets.ModelViewSet):
 
         instance.delete()
         return Response(
-            {"detail": "Comment deleted successfully locally and on Jira."},
+            {"detail": CommentMessages.DELETE_SUCCESS},
             status=status.HTTP_204_NO_CONTENT,
         )

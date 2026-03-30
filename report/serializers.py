@@ -8,6 +8,7 @@ from rest_framework import serializers
 
 from project.enums import MemberStatus
 from project.models import ProjectMember, ProjectModel
+from report.constants import ReportConstants, ReportMessages
 from ticket.enums import Priority, Status
 from ticket.models import Ticket
 
@@ -45,7 +46,7 @@ class ReportSerializer(serializers.Serializer):
 
         project_id = params.get("project")
         if project_id and not ProjectModel.objects.filter(id=project_id).exists():
-            raise serializers.ValidationError("Project not found.")
+            raise serializers.ValidationError(ReportMessages.PROJECT_NOT_FOUND)
 
         if self.include_details:
             target_user_id = params.get("user")
@@ -77,9 +78,7 @@ class ReportSerializer(serializers.Serializer):
                 )
 
             if not (is_self or is_admin):
-                raise serializers.ValidationError(
-                    "You don't have permission to see detailed ticket data."
-                )
+                raise serializers.ValidationError(ReportMessages.PERMISSION_DENIED)
         return attrs
 
     def get_metadata(self, obj):
@@ -94,7 +93,7 @@ class ReportSerializer(serializers.Serializer):
         end = params.get("end_date", "Present")
         project_id = params.get("project")
 
-        project_name = "All Projects"
+        project_name = ReportConstants.ALL_PROJECTS
         if project_id:
             p = ProjectModel.objects.filter(id=project_id).first()
             project_name = p.title if p else "Unknown"
@@ -206,31 +205,31 @@ class ReportSerializer(serializers.Serializer):
                 **qs.filter(status__in=[Status.DONE, Status.CLOSED]).aggregate(
                     **priority_map
                 ),
-                "label": "Project Completed",
+                "label": ReportConstants.LABEL_COMPLETED,
             },
             {
                 **qs.exclude(status__in=[Status.DONE, Status.CLOSED]).aggregate(
                     **priority_map
                 ),
-                "label": "Project Incomplete",
+                "label": ReportConstants.LABEL_INCOMPLETE,
             },
             {
                 **qs.filter(
                     deadline__isnull=False, completed_at__lte=F("deadline")
                 ).aggregate(**priority_map),
-                "label": "Met Deadline",
+                "label": ReportConstants.LABEL_MET_DEADLINE,
             },
             {
                 **qs.filter(
                     deadline__isnull=False, completed_at__gt=F("deadline")
                 ).aggregate(**priority_map),
-                "label": "Missed Deadline",
+                "label": ReportConstants.LABEL_MISSED_DEADLINE,
             },
             {
                 **qs.filter(
                     deadline__isnull=True, status__in=[Status.DONE, Status.CLOSED]
                 ).aggregate(**priority_map),
-                "label": "Completed (No Deadline)",
+                "label": ReportConstants.LABEL_NO_DEADLINE,
             },
         ]
 

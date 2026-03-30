@@ -2,7 +2,7 @@ from celery import shared_task
 from django.contrib.auth import get_user_model
 
 from comment.models import CommentModel
-from core.services import JiraProjectService
+from core.services.jira import JiraProjectService
 from core.utils import ADFToMarkdownConverter
 from project.models import ProjectModel
 from ticket.models import Ticket

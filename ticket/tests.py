@@ -35,10 +35,10 @@ class TicketServiceTestCase(APITestCase):
         )
 
         self.list_create_url = reverse(
-            "ticket-list", kwargs={"project_pk": self.project.id}
+            "ticket-list", kwargs={"project_id": self.project.id}
         )
 
-    @patch("core.services.JiraProjectService.create_jira_task")
+    @patch("core.services.jira.JiraProjectService.create_jira_task")
     def test_create_ticket_sync_success(self, mock_jira):
         """
         Verify successful ticket creation and Jira sync.
@@ -59,7 +59,7 @@ class TicketServiceTestCase(APITestCase):
         self.assertEqual(Ticket.objects.count(), 1)
         self.assertEqual(Ticket.objects.first().jira_id, "JIRA-101")
 
-    @patch("core.services.JiraProjectService.update_jira_task")
+    @patch("core.services.jira.JiraProjectService.update_jira_task")
     def test_non_reporter_cannot_close_ticket(self, mock_jira):
         """
         Verify that users who didn't report the ticket cannot close it.
@@ -68,7 +68,7 @@ class TicketServiceTestCase(APITestCase):
 
         self.client.force_authenticate(user=self.member)
         url = reverse(
-            "ticket-detail", kwargs={"project_pk": self.project.id, "pk": ticket.id}
+            "ticket-detail", kwargs={"project_id": self.project.id, "pk": ticket.id}
         )
 
         response = self.client.patch(url, {"status": Status.CLOSED})
@@ -76,7 +76,7 @@ class TicketServiceTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("You can not close the ticket", str(response.data))
 
-    @patch("core.services.JiraProjectService.update_jira_task")
+    @patch("core.services.jira.JiraProjectService.update_jira_task")
     def test_reporter_can_close_ticket(self, mock_jira):
         """
         Verify that the reporter of a ticket can successfully close it.
@@ -85,7 +85,7 @@ class TicketServiceTestCase(APITestCase):
 
         self.client.force_authenticate(user=self.member)
         url = reverse(
-            "ticket-detail", kwargs={"project_pk": self.project.id, "pk": ticket.id}
+            "ticket-detail", kwargs={"project_id": self.project.id, "pk": ticket.id}
         )
 
         response = self.client.patch(url, {"status": Status.CLOSED})
@@ -103,7 +103,7 @@ class TicketServiceTestCase(APITestCase):
 
         self.client.force_authenticate(user=self.owner)
         url = reverse(
-            "ticket-detail", kwargs={"project_pk": self.project.id, "pk": ticket.id}
+            "ticket-detail", kwargs={"project_id": self.project.id, "pk": ticket.id}
         )
 
         response = self.client.patch(url, {"project": str(other_site_project.id)})
@@ -125,3 +125,19 @@ class TicketServiceTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.data.get("results", response.data)
         self.assertEqual(results[0]["name"], "Owned Task")
+
+    def test_outsider_cannot_access_ticket(self):
+        """
+        Verify that a user who is not a member of the project cannot view the ticket.
+        """
+        ticket = G(Ticket, project=self.project, reporter=self.owner)
+
+        self.client.force_authenticate(user=self.outsider)
+
+        url = reverse(
+            "ticket-detail", kwargs={"project_id": self.project.id, "pk": ticket.id}
+        )
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

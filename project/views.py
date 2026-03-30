@@ -1,13 +1,17 @@
 from django.shortcuts import get_object_or_404
-from rest_framework import status, viewsets
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters, status, viewsets
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from core.constants import PAGE_SIZE
 from core.renders import StandardizedJSONRenderer
 from core.utils import StandardizedPagination
-from project.enums import MemberStatus
+from project.constants import ProjectMessages
+from project.enums import MemberStatus, ProjectRole
 from project.models import ProjectMember, ProjectModel
 from project.permissions import IsProjectAdmin
 from project.serializers import (
@@ -20,7 +24,7 @@ from project.services import ProjectService
 
 
 class UserCursorPagination(CursorPagination):
-    page_size = 5
+    page_size = PAGE_SIZE
     ordering = ("first_name", "pk")
 
 
@@ -35,6 +39,16 @@ class ProjectViewSet(viewsets.ModelViewSet):
     serializer_class = ProjectSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = StandardizedPagination
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+
+    filterset_fields = {
+        "site_url": ["exact", "icontains"],
+        "is_archived": ["exact"],
+    }
+
+    search_fields = ["title", "description", "jira_project_key"]
+
+    ordering_fields = ["created_at", "title", "jira_project_key"]
 
     def get_permissions(self):
         if self.action in ["partial_update", "update"]:
@@ -53,10 +67,12 @@ class ProjectViewSet(viewsets.ModelViewSet):
             memberships__user=user, memberships__status=MemberStatus.MEMBER
         ).distinct()
 
-        show_archived = (
-            self.request.query_params.get("archived", "false").lower() == "true"
-        )
-        return base_qs.filter(is_archived=show_archived)
+        if self.request.query_params.get("archived", None):
+            show_archived = (
+                self.request.query_params.get("archived", "false").lower() == "true"
+            )
+            base_qs.filter(is_archived=show_archived)
+        return base_qs
 
 
 class ProjectInvitationView(viewsets.GenericViewSet):
@@ -66,22 +82,24 @@ class ProjectInvitationView(viewsets.GenericViewSet):
     def invite(self, request, pk=None):
         project = get_object_or_404(ProjectModel, pk=pk)
         if not IsProjectAdmin().has_object_permission(request, self, project):
-            raise PermissionDenied("Admin rights required.")
+            raise PermissionDenied(ProjectMessages.ADMIN_REQUIRED)
 
         serializer = self.get_serializer(
             data=request.data, context={"project_id": project.id, "request": request}
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response({"detail": "Invitation sent."}, status=status.HTTP_201_CREATED)
+        return Response(
+            {"detail": ProjectMessages.INVITE_SENT}, status=status.HTTP_201_CREATED
+        )
 
     def accept(self, request, token=None):
         ProjectService.accept_invitation(token, request.user)
-        return Response({"detail": "Joined successfully."})
+        return Response({"detail": ProjectMessages.JOINED_SUCCESS})
 
     def reject(self, request, token=None):
         ProjectService.reject_invitation(token, request.user)
-        return Response({"detail": "Invitation rejected."})
+        return Response({"detail": ProjectMessages.INVITE_REJECTED})
 
 
 class ProjectMemberViewSet(viewsets.GenericViewSet):
@@ -90,13 +108,16 @@ class ProjectMemberViewSet(viewsets.GenericViewSet):
     pagination_class = StandardizedPagination
     renderer_classes = [StandardizedJSONRenderer]
 
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["user__first_name", "user__last_name", "user__email"]
+
     def get_queryset(self):
         return ProjectService.get_annotated_members(
             self.kwargs.get("project_id"), self.request.user
         )
 
     def list(self, request, project_id=None):
-        queryset = self.get_queryset()
+        queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page or queryset, many=True)
         return (
@@ -108,26 +129,30 @@ class ProjectMemberViewSet(viewsets.GenericViewSet):
     def update_role(self, request, project_id=None, user_id=None):
         project = get_object_or_404(ProjectModel, id=project_id)
         requester_membership = get_object_or_404(
-            ProjectMember, project=project, user=request.user
+            ProjectMember,
+            project=project,
+            user=request.user,
+            status=MemberStatus.MEMBER,
         )
 
         role_input = request.data.get("role") or request.data.get("projectRole")
         new_role = role_input.lower().strip() if isinstance(role_input, str) else ""
 
-        if new_role == "owner" and project.owner != request.user:
-            raise PermissionDenied("Only the owner can transfer ownership.")
+        if new_role == ProjectRole.OWNER and project.owner != request.user:
+            raise PermissionDenied(ProjectMessages.OWNER_ONLY_TRANSFER)
 
-        if new_role == "admin" and not (
+        if new_role == ProjectRole.ADMIN and not (
             project.owner == request.user or requester_membership.is_admin
         ):
-            raise PermissionDenied("No permission to promote.")
+            raise PermissionDenied(ProjectMessages.PROMOTION_DENIED)
 
-        if new_role == "member" and project.owner != request.user:
-            raise PermissionDenied("Only the owner can demote admins.")
+        if new_role == ProjectRole.MEMBER and project.owner != request.user:
+            raise PermissionDenied(ProjectMessages.DEMOTION_DENIED)
 
-        if new_role not in ["owner", "admin", "member"]:
+        if new_role not in ProjectRole.values:
             return Response(
-                {"detail": "Invalid role."}, status=status.HTTP_400_BAD_REQUEST
+                {"detail": ProjectMessages.INVALID_ROLE},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         ProjectService.update_member_role(project, request.user, user_id, new_role)
@@ -136,23 +161,29 @@ class ProjectMemberViewSet(viewsets.GenericViewSet):
     def remove_user(self, request, project_id=None, user_id=None):
         project = get_object_or_404(ProjectModel, id=project_id)
         target_member = get_object_or_404(
-            ProjectMember, project=project, user_id=user_id
+            ProjectMember,
+            project=project,
+            user_id=user_id,
+            status=MemberStatus.MEMBER,
         )
 
         is_self = str(request.user.user_id) == str(user_id)
         if not is_self:
             requester_mem = get_object_or_404(
-                ProjectMember, project=project, user=request.user
+                ProjectMember,
+                project=project,
+                user=request.user,
+                status=MemberStatus.MEMBER,
             )
             can_kick = (project.owner == request.user) or (
                 requester_mem.is_admin and not target_member.is_admin
             )
             if not can_kick:
-                raise PermissionDenied("Permission denied.")
+                raise PermissionDenied(ProjectMessages.PERMISSION_DENIED)
 
         ProjectService.remove_member(project, request.user, user_id)
         msg = (
-            "You have left the project." if is_self else "Member removed successfully."
+            ProjectMessages.LEFT_PROJECT if is_self else ProjectMessages.MEMBER_REMOVED
         )
         return Response({"detail": msg}, status=status.HTTP_200_OK)
 

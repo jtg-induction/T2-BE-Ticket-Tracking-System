@@ -47,7 +47,7 @@ class ProjectAPITests(APITestCase):
     def get_json_data(self, response):
         return json.loads(response.content)
 
-    @patch("core.services.JiraProjectService.create_jira_project")
+    @patch("core.services.jira.JiraProjectService.create_jira_project")
     def test_create_project_success(self, mock_jira):
         mock_jira.return_value = "10001"
 
@@ -112,7 +112,7 @@ class ProjectAPITests(APITestCase):
         self.assertEqual(data["message"], "Operation successful")
         self.assertTrue(ProjectInvitation.objects.filter(invitee=self.invitee).exists())
 
-    @patch("core.services.JiraProjectService.add_user_to_jira_project")
+    @patch("core.services.jira.JiraProjectService.add_user_to_jira_project")
     def test_accept_invitation_success(self, mock_jira_sync):
         invitation = G(
             ProjectInvitation,
@@ -181,7 +181,7 @@ class ProjectAPITests(APITestCase):
         self.assertEqual(data["success"], False)
         self.assertEqual(data["errors"]["detail"], "Admin rights required.")
 
-    @patch("core.services.JiraProjectService.add_user_to_jira_project")
+    @patch("core.services.jira.JiraProjectService.add_user_to_jira_project")
     def test_accept_invitation_idempotency(self, mock_jira_sync):
         invitation = G(
             ProjectInvitation,
@@ -245,7 +245,7 @@ class ProjectMemberAPITests(APITestCase):
             str(response.data["results"][0]["user_id"]), str(self.member.user_id)
         )
 
-    @patch("core.services.JiraProjectService.update_user_role_in_jira")
+    @patch("core.services.jira.JiraProjectService.update_user_role_in_jira")
     def test_promote_member_to_admin_by_owner(self, mockjira):
         self.client.force_authenticate(user=self.owner)
         url = self.get_role_url(self.member.user_id)
@@ -263,7 +263,7 @@ class ProjectMemberAPITests(APITestCase):
         response = self.client.patch(url, {"role": "member"})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("core.services.JiraProjectService.update_user_role_in_jira")
+    @patch("core.services.jira.JiraProjectService.update_user_role_in_jira")
     def test_transfer_ownership_flow(self, mock_jira):
         self.client.force_authenticate(user=self.owner)
         url = self.get_role_url(self.admin.user_id)
@@ -294,7 +294,7 @@ class ProjectMemberAPITests(APITestCase):
             "Owner cannot leave without transferring ownership.",
         )
 
-    @patch("core.services.JiraProjectService.remove_user_from_jira_project")
+    @patch("core.services.jira.JiraProjectService.remove_user_from_jira_project")
     def test_kick_member_success(self, mock_jira):
         self.client.force_authenticate(user=self.admin)
         url = reverse(
@@ -311,7 +311,7 @@ class ProjectMemberAPITests(APITestCase):
             ).exists()
         )
 
-    @patch("core.services.JiraProjectService.update_user_role_in_jira")
+    @patch("core.services.jira.JiraProjectService.update_user_role_in_jira")
     def test_admin_can_promote_member_to_admin(self, mock_jira):
         self.client.force_authenticate(user=self.admin)
         url = self.get_role_url(self.member.user_id)
@@ -322,7 +322,7 @@ class ProjectMemberAPITests(APITestCase):
         self.member_membership.refresh_from_db()
         self.assertTrue(self.member_membership.is_admin)
 
-    @patch("core.services.JiraProjectService.update_user_role_in_jira")
+    @patch("core.services.jira.JiraProjectService.update_user_role_in_jira")
     def test_owner_can_demote_admin_to_member(self, mock_jira):
         self.client.force_authenticate(user=self.owner)
         url = self.get_role_url(self.admin.user_id)
@@ -333,7 +333,7 @@ class ProjectMemberAPITests(APITestCase):
         self.admin_membership.refresh_from_db()
         self.assertFalse(self.admin_membership.is_admin)
 
-    @patch("core.services.JiraProjectService.update_user_role_in_jira")
+    @patch("core.services.jira.JiraProjectService.update_user_role_in_jira")
     def test_admin_cannot_demote_other_admins(self, mock_jira):
         admin2 = G(User)
         G(ProjectMember, project=self.project, user=admin2, is_admin=True)
@@ -345,7 +345,7 @@ class ProjectMemberAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("core.services.JiraProjectService.remove_user_from_jira_project")
+    @patch("core.services.jira.JiraProjectService.remove_user_from_jira_project")
     def test_member_can_leave_project_voluntarily(self, mock):
         self.client.force_authenticate(user=self.member)
         url = reverse(

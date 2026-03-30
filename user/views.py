@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+from user.constants import UserMessages
 from user.models import CustomUser
 from user.serializers import (
     CustomTokenObtainPairSerializer,
@@ -132,7 +133,7 @@ class LogoutView(APIView):
         Returns: 'Set-Cookie' header with an expired date to clear the authentication cookie.
         """
         response = Response(
-            {"message": "Successfully logged out"}, status=status.HTTP_200_OK
+            {"message": UserMessages.LOGOUT_SUCCESS}, status=status.HTTP_200_OK
         )
         refresh_token = request.COOKIES.get(settings.SIMPLE_JWT["AUTH_COOKIE"])
         if refresh_token:
@@ -162,7 +163,7 @@ class CustomTokenRefreshView(TokenRefreshView):
 
         if not refresh_token:
             return Response(
-                {"detail": "Refresh token missing."},
+                {"detail": UserMessages.REFRESH_TOKEN_MISSING},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
@@ -205,7 +206,10 @@ class RequestSignupLinkView(GenericAPIView):
             error_message = e.detail.get("email")[0]
 
             return Response(
-                {"email": [error_message], "detail": "Signup request failed"},
+                {
+                    "email": [error_message],
+                    "detail": UserMessages.SIGNUP_REQUEST_FAILED,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -217,11 +221,11 @@ class RequestSignupLinkView(GenericAPIView):
             send_registration_email_task.delay(email, signup_url)
         except Exception:
             return Response(
-                {"message": "Failed to send email: Some error occured"},
+                {"message": UserMessages.EMAIL_SEND_FAILURE},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         return Response(
-            {"message": "Verification link has been sent to your email."},
+            {"message": UserMessages.SIGNUP_LINK_SENT},
             status=status.HTTP_200_OK,
         )

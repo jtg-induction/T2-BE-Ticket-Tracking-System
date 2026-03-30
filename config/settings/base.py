@@ -143,3 +143,6 @@ CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="").strip()
 CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default="").strip()
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
+
+MEDIA_URL = env("MEDIA_URL", default="/media/")
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")

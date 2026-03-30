@@ -1,7 +1,8 @@
+from django.db.models import Q
 from rest_framework import permissions
 
 from project.enums import MemberStatus
-from project.models import ProjectMember, ProjectModel
+from project.models import ProjectMember
 
 
 class IsProjectAdminOrReadOnly(permissions.BasePermission):
@@ -21,15 +22,13 @@ class IsProjectAdminOrReadOnly(permissions.BasePermission):
         if not project_pk:
             return True
 
-        is_owner = ProjectModel.objects.filter(id=project_pk, owner=user).exists()
-        is_member = ProjectMember.objects.filter(
-            project_id=project_pk, user=user, status=MemberStatus.MEMBER
+        has_access = ProjectMember.objects.filter(
+            Q(project_id=project_pk, user=user, status=MemberStatus.MEMBER)
+            | Q(project_id=project_pk, project__owner=user)
         ).exists()
 
         if request.method == "LIST":
-            if is_owner or is_member:
-                return True
-            return False
+            return has_access
 
         return True
 

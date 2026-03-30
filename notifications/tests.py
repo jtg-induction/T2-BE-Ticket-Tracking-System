@@ -43,7 +43,7 @@ class TicketUpdateNotificationTests(APITestCase):
         self.client.force_authenticate(user=self.user)
         self.url = reverse(
             "ticket-detail",
-            kwargs={"project_pk": self.project.id, "pk": self.ticket.id},
+            kwargs={"project_id": self.project.id, "pk": self.ticket.id},
         )
 
     @contextmanager
@@ -64,7 +64,7 @@ class TicketUpdateNotificationTests(APITestCase):
                     )
                     callback()
 
-    @patch("core.services.JiraProjectService.update_jira_task")
+    @patch("core.services.jira.JiraProjectService.update_jira_task")
     @patch("celery.app.control.Control.revoke")
     @patch("notifications.tasks.run_deadline_notification.apply_async")
     def test_deadline_update_revokes_and_schedules(
@@ -81,7 +81,7 @@ class TicketUpdateNotificationTests(APITestCase):
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.deadline_task_id, "new-task-uuid")
 
-    @patch("core.services.JiraProjectService.update_jira_task")
+    @patch("core.services.jira.JiraProjectService.update_jira_task")
     @patch("notifications.tasks.run_status_notification.delay")
     def test_status_change_metadata_and_task(self, mock_status_task, mock_jira):
         with self.captureOnCommitCallbacks(execute=True):
@@ -92,7 +92,7 @@ class TicketUpdateNotificationTests(APITestCase):
         self.assertEqual(self.ticket.status, Status.IN_PROGRESS)
         mock_status_task.assert_called_with(self.ticket.id)
 
-    @patch("core.services.JiraProjectService.update_jira_task")
+    @patch("core.services.jira.JiraProjectService.update_jira_task")
     def test_assignee_change_auto_subscribes(self, mock_jira):
         new_assignee = G(User)
         G(
@@ -111,7 +111,7 @@ class TicketUpdateNotificationTests(APITestCase):
             ).exists()
         )
 
-    @patch("core.services.JiraProjectService.update_jira_task")
+    @patch("core.services.jira.JiraProjectService.update_jira_task")
     @patch("celery.app.control.Control.revoke")
     @patch("notifications.tasks.run_deadline_notification.apply_async")
     def test_imminent_deadline_clears_task_id(self, mock_apply, mock_revoke, mock_jira):

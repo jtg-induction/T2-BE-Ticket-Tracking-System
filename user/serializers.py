@@ -4,6 +4,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from core.utils import encrypt_token
+from user.constants import UserMessages
 from user.models import CustomUser
 from user.utils import verify_signup_jwt
 
@@ -75,21 +76,19 @@ class UserSerializer(serializers.ModelSerializer):
             token = attrs.pop("token", None)
             if not token:
                 raise serializers.ValidationError(
-                    {"token": "Token is required for registration."}
+                    {"token": UserMessages.TOKEN_REQUIRED}
                 )
 
             try:
                 email = verify_signup_jwt(token)
                 if not email:
                     raise serializers.ValidationError(
-                        {
-                            "token": "The provided token is invalid or missing the email claim."
-                        }
+                        {"token": UserMessages.TOKEN_INVALID}
                     )
 
                 if CustomUser.all_objects.filter(email=email).exists():
                     raise serializers.ValidationError(
-                        {"email": "User already exists with this email."}
+                        {"email": UserMessages.USER_ALREADY_EXISTS}
                     )
 
                 attrs["email"] = email
@@ -101,12 +100,12 @@ class UserSerializer(serializers.ModelSerializer):
 
             if "email" in attrs:
                 raise serializers.ValidationError(
-                    {"email": "This field cannot be modified."}
+                    {"email": UserMessages.EMAIL_MODIFICATION_FORBIDDEN}
                 )
 
             if "jira_id" in attrs:
                 raise serializers.ValidationError(
-                    {"jira_id": "This field cannot be modified."}
+                    {"jira_id": UserMessages.JIRA_ID_MODIFICATION_FORBIDDEN}
                 )
 
         return attrs
@@ -155,6 +154,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     Serializer to handle generation of access and refresh token
     """
 
+    password = serializers.CharField(write_only=True)
+
     @classmethod
     def get_token(cls, user):
         """
@@ -170,37 +171,15 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token["jira_id"] = user.jira_id
         return token
 
-    def validate(self, attrs):
+    def validate_password(self, value):
         """
-        Extends the validation response data with user profile information.
-
-        Args:
-            attrs (dict): User credentials (email and password).
-
-        Returns:
-            dict: The standard response data (access/refresh) plus a 'user' object.
+        Field-level validation for decoding the Base64 password.
         """
-        password = attrs.get("password")
-        if password:
-            try:
-                decoded_password = base64.b64decode(password).decode("utf-8")
-                attrs["password"] = decoded_password
-
-            except Exception:
-                raise serializers.ValidationError({"password": "Invalid password"})
-
-        data = super().validate(attrs)
-        data["user"] = {
-            "user_id": self.user.user_id,
-            "email": self.user.email,
-            "first_name": self.user.first_name,
-            "last_name": self.user.last_name,
-            "role": self.user.role,
-            "about": self.user.about,
-            "dob": self.user.dob,
-            "jira_id": self.user.jira_id,
-        }
-        return data
+        try:
+            decoded_password = base64.b64decode(value).decode("utf-8")
+            return decoded_password
+        except Exception:
+            raise serializers.ValidationError(UserMessages.INVALID_BASE64_PASSWORD)
 
 
 class SignupLinkRequestSerializer(serializers.Serializer):
@@ -222,7 +201,5 @@ class SignupLinkRequestSerializer(serializers.Serializer):
         """
         email = value.lower()
         if CustomUser.all_objects.filter(email=email).exists():
-            raise serializers.ValidationError(
-                "An account with this email already exists."
-            )
+            raise serializers.ValidationError(UserMessages.USER_ALREADY_EXISTS)
         return email
