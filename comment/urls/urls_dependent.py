@@ -1,15 +1,15 @@
 from django.urls import path
 
-from .views import CommentViewSet
+from comment.views import CommentViewSet
 
 urlpatterns = [
     path(
-        "ticket/<uuid:ticket_pk>/comment/",
+        "comment/",
         CommentViewSet.as_view({"get": "list", "post": "create"}),
         name="ticket-comment-list",
     ),
     path(
-        "ticket/<uuid:ticket_pk>/comment/<uuid:pk>/",
+        "comment/<uuid:pk>/",
         CommentViewSet.as_view(
             {
                 "get": "retrieve",

@@ -7,8 +7,7 @@ from rest_framework import serializers
 
 from comment.tasks import sync_comments_in_batches
 from config.celery import app
-from core.services import JiraProjectService
-from core.utils import parse_jira_error
+from core.services.jira import JiraProjectService
 from notifications.models import Notifications
 from notifications.tasks import (
     run_assignee_notification,
@@ -17,10 +16,11 @@ from notifications.tasks import (
 )
 from project.enums import MemberStatus
 from project.models import ProjectMember, ProjectModel
+from project.serializers import ProjectSerializer
+from ticket.constants import TicketConstants, TicketMessages
+from ticket.enums import Category, Priority, Status
+from ticket.models import Ticket
 from user.serializers import UserSerializer
-
-from .enums import Category, Status
-from .models import Ticket
 
 
 class TicketSerializer(serializers.ModelSerializer):
@@ -35,10 +35,13 @@ class TicketSerializer(serializers.ModelSerializer):
     project = serializers.PrimaryKeyRelatedField(
         queryset=ProjectModel.objects.all(), required=False
     )
+    project_details = ProjectSerializer(source="project", read_only=True)
     ticket_role = serializers.SerializerMethodField()
     is_project_archived = serializers.BooleanField(
         source="project.is_archived", read_only=True
     )
+    is_subscribed = serializers.SerializerMethodField()
+    is_imported = serializers.BooleanField(read_only=True, default=True)
 
     class Meta:
         model = Ticket
@@ -52,6 +55,23 @@ class TicketSerializer(serializers.ModelSerializer):
             "is_project_archived",
         ]
 
+    def get_is_imported(self, obj):
+        if hasattr(obj, "is_imported"):
+            return obj.is_imported
+        return obj.pk is not None
+
+    def get_is_subscribed(self, obj):
+        is_subscribed = getattr(obj, "is_subscribed", None)
+        if is_subscribed is not None:
+            return is_subscribed
+
+        user = self.context.get("request").user
+        if user and user.is_authenticated:
+            return Notifications.objects.filter(
+                ticket=obj, subscriber=user, is_deleted=False
+            ).exists()
+        return False
+
     def validate_status(self, value):
         """
         Ensures only the original reporter can transition a ticket to CLOSED.
@@ -61,7 +81,7 @@ class TicketSerializer(serializers.ModelSerializer):
         if self.instance and value == Status.CLOSED:
             if user != self.instance.reporter:
                 raise serializers.ValidationError(
-                    {"status": "You can not close the ticket."}
+                    TicketMessages.STATUS_TRANSITION_DENIED
                 )
 
         return value
@@ -101,12 +121,12 @@ class TicketSerializer(serializers.ModelSerializer):
                 and reporter.user_id not in valid_member_ids
             ):
                 raise serializers.ValidationError(
-                    {"reporter": "User is not a member of this project."}
+                    {"reporter": TicketMessages.MEMBER_REQUIRED_REPORTER}
                 )
 
             if assignee and assignee.user_id not in valid_member_ids:
                 raise serializers.ValidationError(
-                    {"assignee": "User is not a member of this project."}
+                    {"assignee": TicketMessages.MEMBER_REQUIRED_ASSIGNEE}
                 )
 
         if (
@@ -115,23 +135,23 @@ class TicketSerializer(serializers.ModelSerializer):
             and data["reporter"] != self.instance.reporter
         ):
             raise serializers.ValidationError(
-                {"reporter": "Reporter cannot be changed."}
+                {"reporter": TicketMessages.REPORTER_IMMUTABLE}
             )
 
         if self.instance and self.instance.project.is_archived:
             raise serializers.ValidationError(
-                {"project": "Cannot edit an archived project."}
+                {"project": TicketMessages.PROJECT_ARCHIVED}
             )
 
         new_project = data.get("project")
         if self.instance and new_project and new_project.id != self.instance.project_id:
             if new_project.is_archived:
                 raise serializers.ValidationError(
-                    {"project": "Target project is archived."}
+                    {"project": TicketMessages.TARGET_PROJECT_ARCHIVED}
                 )
             if new_project.site_url != self.instance.project.site_url:
                 raise serializers.ValidationError(
-                    {"project": "Cannot move ticket to a different Jira site."}
+                    {"project": TicketMessages.SITE_MISMATCH}
                 )
 
         return data
@@ -150,21 +170,19 @@ class TicketSerializer(serializers.ModelSerializer):
         assignee = validated_data.get("assignee")
         deadline = validated_data.get("deadline")
         formatted_deadline = deadline.strftime("%Y-%m-%d") if deadline else None
+        requested_status = validated_data.get("status")
 
-        try:
-            jira_response = JiraProjectService.create_jira_task(
-                user=user,
-                project_instance=project,
-                summary=validated_data["name"],
-                description=validated_data.get("description", ""),
-                reporter_id=reporter.jira_id,
-                category=validated_data["category"],
-                priority=validated_data.get("priority", "Medium"),
-                due_date=formatted_deadline,
-            )
-        except Exception as e:
-            clean_error = parse_jira_error(e)
-            raise serializers.ValidationError({"detail": clean_error})
+        jira_response = JiraProjectService.create_jira_task(
+            user=user,
+            project_instance=project,
+            summary=validated_data["name"],
+            description=validated_data.get("description", ""),
+            reporter_id=reporter.jira_id,
+            category=validated_data["category"],
+            priority=validated_data.get("priority", Priority.MEDIUM),
+            due_date=formatted_deadline,
+            status_name=requested_status,
+        )
 
         validated_data["jira_id"] = jira_response.get("key")
 
@@ -199,84 +217,85 @@ class TicketSerializer(serializers.ModelSerializer):
                     task_result = run_deadline_notification.apply_async(
                         args=[ticket.id], eta=remainder_time
                     )
+                    ticket.deadline_task_id = task_result.id
+                    ticket.save(update_fields=["deadline_task_id"])
 
-                ticket.deadline_task_id = task_result.id
             return ticket
 
     def update(self, instance, validated_data):
-        """
-        Updates local ticket and triggers a corresponding update in Jira.
-
-        Tracks status transition metadata (who, when, and from what status).
-        """
         user = self.context["request"].user
-        new_status = validated_data.get("status")
 
+        # 1. Snapshots for comparison
         old_status = instance.status
         old_deadline = instance.deadline
         old_assignee = instance.assignee
         old_task_id = instance.deadline_task_id
 
+        if "assignee" in validated_data and validated_data["assignee"] == "":
+            validated_data["assignee"] = None
+
         new_status = validated_data.get("status")
         new_deadline = validated_data.get("deadline")
         new_assignee = validated_data.get("assignee")
 
-        if new_status and new_status != instance.status:
-            validated_data["status_updated_from"] = instance.status
+        # 2. Update Metadata
+        if new_status and new_status != old_status:
+            validated_data["status_updated_from"] = old_status
             validated_data["status_updated_at"] = timezone.now()
             validated_data["status_updated_by"] = user
-
             if new_status == Status.CLOSED:
                 validated_data["completed_at"] = timezone.now()
 
         validated_data["updated_by"] = user
 
-        try:
-            JiraProjectService.update_jira_task(
-                user=user, ticket_instance=instance, validated_data=validated_data
-            )
-        except Exception as e:
-            clean_error = parse_jira_error(e)
-            raise serializers.ValidationError({"detail": clean_error})
+        # 3. Jira Sync
 
+        JiraProjectService.update_jira_task(
+            user=user, ticket_instance=instance, validated_data=validated_data
+        )
+
+        # 4. Atomic Database Updates
         with transaction.atomic():
             for attr, value in validated_data.items():
                 setattr(instance, attr, value)
+
+            # Auto-subscribe new assignee
+            if new_assignee and new_assignee != old_assignee:
+                Notifications.objects.get_or_create(
+                    ticket=instance, subscriber=new_assignee
+                )
+
+            # Revoke old task and schedule new one
+            if new_deadline and new_deadline != old_deadline:
+                if old_task_id:
+                    app.control.revoke(old_task_id, terminate=True)
+
+                remainder_time = new_deadline - timedelta(days=1)
+                if remainder_time < timezone.now():
+                    remainder_time = new_deadline - timedelta(hours=2)
+
+                if remainder_time > timezone.now():
+                    new_task = run_deadline_notification.apply_async(
+                        args=[instance.id], eta=remainder_time
+                    )
+                    instance.deadline_task_id = new_task.id
+                else:
+                    instance.deadline_task_id = None
+
             instance.save()
 
-            # TRIGGER NOTIFICATIONS
-
-            # Status Change
+            # 5. TRIGGER NOTIFICATIONS
             if new_status and new_status != old_status:
-                run_status_notification.delay(instance.id)
+                transaction.on_commit(
+                    lambda: run_status_notification.delay(instance.id)
+                )
 
-            # New Assignee
             if new_assignee and new_assignee != old_assignee:
                 transaction.on_commit(
                     lambda: run_assignee_notification.delay(instance.id)
                 )
 
-                Notifications.objects.get_or_create(
-                    ticket=instance, subscriber=new_assignee
-                )
-
-            # updating deadline
-            if new_deadline and new_deadline != old_deadline:
-                if old_task_id:
-                    app.control.revoke(old_task_id, terminate=True)
-                remainder_time = new_deadline - timedelta(days=1)
-
-                if remainder_time < timezone.now():
-                    remainder_time = new_deadline - timedelta(hours=2)
-
-                if remainder_time > timezone.now():
-                    run_deadline_notification.task_result = (
-                        run_deadline_notification.apply_async(
-                            args=[instance.id], eta=remainder_time
-                        )
-                    )
-
-            return super().update(instance, validated_data)
+        return instance
 
     def to_representation(self, instance):
         """
@@ -306,23 +325,23 @@ class TicketSerializer(serializers.ModelSerializer):
         """
         user = self.context.get("request").user
         if not user or user.is_anonymous:
-            return "guest"
+            return TicketConstants.ROLE_GUEST
 
         if user == obj.reporter:
-            return "reporter"
+            return TicketConstants.ROLE_REPORTER
 
         membership = self.context.get("user_membership")
 
         if membership and membership.is_admin:
-            return "admin"
+            return TicketConstants.ROLE_ADMIN
 
         if user == obj.assignee:
-            return "assignee"
+            return TicketConstants.ROLE_ASSIGNEE
 
         if membership:
-            return "member"
+            return TicketConstants.ROLE_MEMBER
 
-        return "none"
+        return TicketConstants.ROLE_NONE
 
 
 class JiraImportSerializer(serializers.Serializer):
@@ -343,7 +362,7 @@ class JiraImportSerializer(serializers.Serializer):
         Prevents duplicate imports of the same Jira ticket.
         """
         if Ticket.objects.filter(jira_id=value).exists():
-            raise serializers.ValidationError("This ticket has already been imported.")
+            raise serializers.ValidationError(TicketMessages.ALREADY_IMPORTED)
         return value
 
     def save(self, user, project, mapper_func):
@@ -370,7 +389,7 @@ class JiraImportSerializer(serializers.Serializer):
         issues = response_data.get("issues", [])
 
         if not issues:
-            raise serializers.ValidationError({"Ticket not found or no access."})
+            raise serializers.ValidationError({TicketMessages.TICKET_NOT_FOUND})
 
         issue_data = issues[0]
 
@@ -390,9 +409,7 @@ class JiraImportSerializer(serializers.Serializer):
 
             if not reporter:
                 raise serializers.ValidationError(
-                    {
-                        "reporter": "The reporter of this ticket is not part of our environment"
-                    }
+                    {"reporter": TicketMessages.REPORTER_NOT_FOUND}
                 )
 
         ticket, created = Ticket.objects.update_or_create(

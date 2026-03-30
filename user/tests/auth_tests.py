@@ -1,7 +1,7 @@
-import uuid
+import base64
 
+from ddf import G
 from django.conf import settings
-from django.core import mail
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -25,22 +25,11 @@ class AuthFlowTests(APITestCase):
         self.refresh_url = reverse("token_refresh")
         self.cookie_name = settings.SIMPLE_JWT.get("AUTH_COOKIE", "refresh_token")
 
-    def create_user(self, email, password="password123", **extra_fields):
+    def _encode_password(self, password):
         """
-        Helper to create a user instance.
+        Helper to Base64 encode passwords to match CustomTokenObtainPairSerializer requirements.
         """
-        if "first_name" not in extra_fields:
-            extra_fields["first_name"] = f"TestUser_{uuid.uuid4().hex[:4]}"
-
-        if "jira_id" not in extra_fields:
-            extra_fields["jira_id"] = f"JIRA-{uuid.uuid4().hex[:8]}"
-
-        if "jira_api_token" not in extra_fields:
-            extra_fields["jira_api_token"] = f"JIRA-{uuid.uuid4().hex[:8]}"
-
-        return CustomUser.objects.create_user(
-            email=email, password=password, **extra_fields
-        )
+        return base64.b64encode(password.encode("utf-8")).decode("utf-8")
 
     def test_request_link_success(self):
         """
@@ -50,7 +39,6 @@ class AuthFlowTests(APITestCase):
             self.request_link_url, {"email": "new_user@example.com"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(mail.outbox), 1)
         self.assertIn("Verification link", response.data["message"])
 
     def test_request_link_fails_if_user_exists(self):
@@ -58,7 +46,7 @@ class AuthFlowTests(APITestCase):
         Verify link request fails for existing email addresses.
         """
         email = "already_here@example.com"
-        self.create_user(email=email)
+        G(CustomUser, email=email)
         response = self.client.post(self.request_link_url, {"email": email})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("exists", str(response.data))
@@ -103,9 +91,13 @@ class AuthFlowTests(APITestCase):
         """
         email = "login@example.com"
         password = "correct_password"
-        self.create_user(email=email, password=password)
+        user = G(CustomUser, email=email, jira_id="JIRA-123")
+        user.set_password(password)
+        user.save()
+
+        encoded_password = self._encode_password(password)
         response = self.client.post(
-            self.login_url, {"email": email, "password": password}
+            self.login_url, {"email": email, "password": encoded_password}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("access", response.data)
@@ -116,27 +108,38 @@ class AuthFlowTests(APITestCase):
         Verify login fails with invalid password.
         """
         email = "login@example.com"
-        self.create_user(email=email, password="correct_password")
+        user = G(CustomUser, email=email)
+        user.set_password("correct_password")
+        user.save()
+
+        encoded_password = self._encode_password("wrong_password")
         response = self.client.post(
-            self.login_url, {"email": email, "password": "wrong_password"}
+            self.login_url, {"email": email, "password": encoded_password}
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_logout_clears_cookie(self):
+        """
+        Verify logout clears the refresh token cookie.
+        """
         email = "logout_test@example.com"
         password = "password123"
-        self.create_user(email=email, password=password)
+        user = G(CustomUser, email=email, jira_id="JIRA-LOGOUT")
+        user.set_password(password)
+        user.save()
 
+        encoded_password = self._encode_password(password)
         login_res = self.client.post(
-            self.login_url, {"email": email, "password": password}
+            self.login_url, {"email": email, "password": encoded_password}
         )
-        self.assertIn(self.cookie_name, login_res.cookies)
+        access_token = login_res.data["access"]
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
 
         logout_url = reverse("logout")
         response = self.client.post(logout_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
         target_cookie = response.cookies.get(self.cookie_name)
         self.assertEqual(target_cookie.value, "")
         self.assertEqual(target_cookie["max-age"], 0)

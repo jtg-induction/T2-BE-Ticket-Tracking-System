@@ -1,5 +1,6 @@
 import uuid
 
+from ddf import G
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -14,26 +15,10 @@ class UserAPITests(APITestCase):
 
     def setUp(self):
         """
-        Setup test users and URLs.
+        Setup test users and URLs using DDF.
         """
-        self.user_data = {
-            "email": "anmol@example.com",
-            "password": "password123",
-            "jira_id": "JIRA-123",
-            "first_name": "Anmol",
-            "last_name": "S",
-            "jira_api_token": "sometoken",
-        }
-        self.other_user_data = {
-            "email": "other@example.com",
-            "password": "password123",
-            "jira_id": "JIRA-456",
-            "first_name": "Other",
-            "jira_api_token": "sometoken123",
-            "last_name": "User",
-        }
-        self.user = CustomUser.objects.create_user(**self.user_data)
-        self.other_user = CustomUser.objects.create_user(**self.other_user_data)
+        self.user = G(CustomUser, email="anmol@example.com", first_name="Anmol")
+        self.other_user = G(CustomUser, email="other@example.com")
 
         self.me_url = reverse("user-me")
         self.detail_url = lambda uid: reverse("user-detail", kwargs={"user_id": uid})

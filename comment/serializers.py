@@ -1,10 +1,9 @@
 from rest_framework import serializers
 
-from core.services import JiraProjectService
-from core.utils import parse_jira_error
+from comment.constants import CommentMessages
+from comment.models import CommentModel
+from core.services.jira import JiraProjectService
 from user.serializers import UserSerializer
-
-from .models import CommentModel
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -26,9 +25,7 @@ class CommentSerializer(serializers.ModelSerializer):
 
     message = serializers.CharField(
         max_length=1000,
-        error_messages={
-            "max_length": "Comment is too long. Please keep it under 10,000 characters."
-        },
+        error_messages={"max_length": CommentMessages.MAX_LENGTH_ERROR},
     )
 
     class Meta:
@@ -91,13 +88,9 @@ class CommentSerializer(serializers.ModelSerializer):
         ticket = validated_data.get("ticket")
         message = validated_data.get("message")
 
-        try:
-            jira_id = JiraProjectService.add_comment_to_jira(
-                user=user, ticket_instance=ticket, message=message
-            )
-        except Exception as e:
-            clean_error = parse_jira_error(e)
-            raise serializers.ValidationError({"detail": clean_error})
+        jira_id = JiraProjectService.add_comment_to_jira(
+            user=user, ticket_instance=ticket, message=message
+        )
 
         validated_data["jira_id"] = jira_id
         return super().create(validated_data)
@@ -109,15 +102,11 @@ class CommentSerializer(serializers.ModelSerializer):
         user = self.context["request"].user
         new_message = validated_data.get("message", instance.message)
 
-        try:
-            JiraProjectService.update_jira_comment(
-                user=user,
-                ticket_instance=instance.ticket,
-                jira_comment_id=instance.jira_id,
-                message=new_message,
-            )
-        except Exception as e:
-            clean_error = parse_jira_error(e)
-            raise serializers.ValidationError({"detail": clean_error})
+        JiraProjectService.update_jira_comment(
+            user=user,
+            ticket_instance=instance.ticket,
+            jira_comment_id=instance.jira_id,
+            message=new_message,
+        )
 
         return super().update(instance, validated_data)

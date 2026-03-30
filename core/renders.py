@@ -52,8 +52,10 @@ class StandardizedJSONRenderer(JSONRenderer):
                     message = errors[0] if isinstance(errors, list) else errors
                 elif "detail" in data:
                     message = data.get("detail")
+                elif "error" in data:
+                    message = data.get("error")
                 else:
-                    message = "Validation error occurred"
+                    message = "unknown error occurred"
 
         if status_code == 204:
             data = None

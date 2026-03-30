@@ -1,5 +1,5 @@
 from django.conf import settings
-from rest_framework import mixins, permissions, status, viewsets
+from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.generics import GenericAPIView
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
@@ -7,16 +7,17 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from .models import CustomUser
-from .serializers import (
+from user.constants import UserMessages
+from user.models import CustomUser
+from user.serializers import (
     CustomTokenObtainPairSerializer,
     SignupLinkRequestSerializer,
     UserSerializer,
 )
-from .utils import (
+from user.tasks import send_registration_email_task
+from user.utils import (
     clear_auth_cookie,
     generate_signup_jwt,
-    send_registration_email,
     set_auth_cookie,
 )
 
@@ -92,6 +93,8 @@ class CustomLoginView(TokenObtainPairView):
     View to handle user login and JWT issuance.
     """
 
+    serializer_class = CustomTokenObtainPairSerializer
+
     def post(self, request, *args, **kwargs):
         """
         Authenticates user credentials and returns an access token.
@@ -130,7 +133,7 @@ class LogoutView(APIView):
         Returns: 'Set-Cookie' header with an expired date to clear the authentication cookie.
         """
         response = Response(
-            {"message": "Successfully logged out"}, status=status.HTTP_200_OK
+            {"message": UserMessages.LOGOUT_SUCCESS}, status=status.HTTP_200_OK
         )
         refresh_token = request.COOKIES.get(settings.SIMPLE_JWT["AUTH_COOKIE"])
         if refresh_token:
@@ -160,7 +163,7 @@ class CustomTokenRefreshView(TokenRefreshView):
 
         if not refresh_token:
             return Response(
-                {"detail": "Refresh token missing."},
+                {"detail": UserMessages.REFRESH_TOKEN_MISSING},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
@@ -197,20 +200,32 @@ class RequestSignupLinkView(GenericAPIView):
             Response: Success message or 500 status if email delivery fails.
         """
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as e:
+            error_message = e.detail.get("email")[0]
+
+            return Response(
+                {
+                    "email": [error_message],
+                    "detail": UserMessages.SIGNUP_REQUEST_FAILED,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         email = serializer.validated_data["email"]
         token = generate_signup_jwt(email)
         signup_url = f"{settings.CLIENT_URL}/register?token={token}"
 
         try:
-            send_registration_email(email, signup_url)
+            send_registration_email_task.delay(email, signup_url)
         except Exception:
             return Response(
-                {"message": "Failed to send email: Some error occured"},
+                {"message": UserMessages.EMAIL_SEND_FAILURE},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         return Response(
-            {"message": "Verification link has been sent to your email."},
+            {"message": UserMessages.SIGNUP_LINK_SENT},
             status=status.HTTP_200_OK,
         )

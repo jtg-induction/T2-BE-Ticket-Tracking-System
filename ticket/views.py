@@ -1,27 +1,28 @@
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
+from core.constants import MAX_PAGE_SIZE, PAGE_SIZE
 from core.renders import StandardizedJSONRenderer
-from core.services import JiraProjectService
-from core.utils import parse_jira_error
+from core.services.jira import JiraProjectService
 from project.enums import MemberStatus
 from project.models import ProjectMember, ProjectModel
-
-from .models import Ticket
-from .permissions import IsProjectAdminOrReadOnly
-from .serializers import JiraImportSerializer, TicketSerializer
-from .utils import map_jira_to_ticket
+from ticket.models import Ticket
+from ticket.permissions import IsProjectAdminOrReadOnly
+from ticket.serializers import JiraImportSerializer, TicketSerializer
+from ticket.utils import map_jira_to_ticket
 
 
 class TicketPagination(PageNumberPagination):
     page_query_param = "page"
-    page_size_query_param = "pageSize"
-    page_size = 10
-    max_page_size = 100
+    page_size_query_param = "page_size"
+    page_size = PAGE_SIZE
+    max_page_size = MAX_PAGE_SIZE
 
 
 class TicketViewSet(viewsets.ModelViewSet):
@@ -32,7 +33,20 @@ class TicketViewSet(viewsets.ModelViewSet):
     serializer_class = TicketSerializer
     permission_classes = [IsProjectAdminOrReadOnly]
     pagination_class = TicketPagination
-    renderer_classes = [StandardizedJSONRenderer]
+
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+
+    filterset_fields = ["status", "priority", "category", "project"]
+    search_fields = ["name", "description", "jira_id"]
+    ordering_fields = [
+        "created_at",
+        "deadline",
+        "priority",
+        "status",
+        "jira_id",
+        "name",
+    ]
+    ordering = ["-created_at"]
 
     def get_queryset(self):
         """
@@ -42,19 +56,15 @@ class TicketViewSet(viewsets.ModelViewSet):
         prevent N+1 database hits. Also pre-fetches the current user's
         project membership to facilitate role-based logic in the serializer.
         """
+
         user = self.request.user
 
         queryset = Ticket.objects.filter(
-            project_id=self.kwargs["project_pk"], is_deleted=False
+            project_id=self.kwargs["project_id"], is_deleted=False
         ).select_related("reporter", "assignee", "project", "project__owner")
 
-        status = self.request.query_params.get("status")
-
-        if status:
-            queryset = queryset.filter(status=status)
-
         self.user_membership = ProjectMember.objects.filter(
-            user=user, project_id=self.kwargs["project_pk"], status=MemberStatus.MEMBER
+            user=user, project_id=self.kwargs["project_id"], status=MemberStatus.MEMBER
         ).first()
 
         return queryset
@@ -69,7 +79,7 @@ class TicketViewSet(viewsets.ModelViewSet):
         context = super().get_serializer_context()
         context.update(
             {
-                "project_id": self.kwargs.get("project_pk"),
+                "project_id": self.kwargs.get("project_id"),
                 "user_membership": getattr(self, "user_membership", None),
             }
         )
@@ -79,11 +89,10 @@ class TicketViewSet(viewsets.ModelViewSet):
         """
         Persists a new ticket instance linked to the current project.
         """
-        project_instance = get_object_or_404(ProjectModel, pk=self.kwargs["project_pk"])
+        project_instance = get_object_or_404(ProjectModel, pk=self.kwargs["project_id"])
         serializer.save(project=project_instance)
 
-    @action(detail=False, methods=["get"], url_path="all-tickets")
-    def list_all_tickets(self, request, project_pk=None):
+    def list_all_tickets(self, request, project_id=None):
         """
         Retrieves all tickets across the system where the requesting user
             is either the reporter or the assignee.
@@ -91,6 +100,8 @@ class TicketViewSet(viewsets.ModelViewSet):
         queryset = Ticket.objects.select_related(
             "reporter", "assignee", "project"
         ).filter(Q(assignee=request.user) | Q(reporter=request.user))
+
+        queryset = self.filter_queryset(queryset)
 
         status = self.request.query_params.get("status")
 
@@ -118,54 +129,54 @@ class JiraTicketViewSet(viewsets.GenericViewSet):
     renderer_classes = [StandardizedJSONRenderer]
 
     @action(detail=False, methods=["get"], url_path="search")
-    def search(self, request, project_pk=None):
-        """
-        Executes a JQL search against the linked Jira project.
-        Maps remote Jira issues to in-memory Ticket instances for standardized
-        serialization before returning results.
-        """
-        query = request.query_params.get("q")
+    def search(self, request, project_id=None):
+        query = request.query_params.get("q", "")
         cursor = request.query_params.get("cursor", None)
-        maxResults = request.query_params.get("max_results")
-        if not query:
-            return Response({"error": "Query parameter 'q' is required"}, status=400)
+        max_results = request.query_params.get("max_results", 50)
 
-        project = get_object_or_404(ProjectModel, pk=project_pk)
+        project = get_object_or_404(ProjectModel, pk=project_id)
 
-        try:
-            jira_issues = JiraProjectService.search_jira_tickets(
-                user=request.user,
-                project_instance=project,
-                jql_query=query,
-                nextPageToken=cursor,
-                maxResults=maxResults,
+        jira_data = JiraProjectService.search_jira_tickets(
+            user=request.user,
+            project_instance=project,
+            jql_query=query,
+            nextPageToken=cursor,
+            maxResults=max_results,
+        )
+
+        jira_issues = jira_data.get("issues", [])
+
+        remote_keys = [issue.get("key") for issue in jira_issues]
+
+        existing_keys = set(
+            Ticket.objects.filter(project=project, jira_id__in=remote_keys).values_list(
+                "jira_id", flat=True
             )
+        )
 
-            tickets = [
-                map_jira_to_ticket(i, project) for i in jira_issues.get("issues", [])
-            ]
+        tickets = []
+        for issue in jira_issues:
+            ticket_obj = map_jira_to_ticket(issue, project)
+            ticket_obj.is_imported = ticket_obj.jira_id in existing_keys
+            tickets.append(ticket_obj)
 
-            serializer = self.get_serializer(tickets, many=True)
-            return Response(
-                {
-                    "results": serializer.data,
-                    "next": jira_issues["next_page_token"],
-                    "count": jira_issues["total"],
-                }
-            )
-
-        except Exception as e:
-            clear_error = parse_jira_error(e)
-            return Response({"error": clear_error}, status=400)
+        serializer = self.get_serializer(tickets, many=True)
+        return Response(
+            {
+                "results": serializer.data,
+                "next": jira_data.get("next_page_token"),
+                "total": jira_data.get("total", 0),
+            }
+        )
 
     @action(detail=False, methods=["post"], url_path="import")
-    def import_to_local(self, request, project_pk=None):
+    def import_to_local(self, request, project_id=None):
         """
         Imports a specific Jira issue into the local database using its Jira Key.
         Ensures the ticket doesn't already exist and that the reporter is
         a registered user in the local environment.
         """
-        project = get_object_or_404(ProjectModel, pk=project_pk)
+        project = get_object_or_404(ProjectModel, pk=project_id)
 
         serializer = JiraImportSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

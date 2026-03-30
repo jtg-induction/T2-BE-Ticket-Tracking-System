@@ -4,22 +4,22 @@ from rest_framework import status, viewsets
 from rest_framework.pagination import CursorPagination
 from rest_framework.response import Response
 
+from comment.constants import CommentMessages
+from comment.models import CommentModel
+from comment.permissions import CommentPermission
+from comment.serializers import CommentSerializer
+from core.constants import PAGE_SIZE
 from core.renders import StandardizedJSONRenderer
-from core.services import JiraProjectService
-from core.utils import parse_jira_error
+from core.services.jira import JiraProjectService
 from project.enums import MemberStatus
 from ticket.models import Ticket
 
-from .models import CommentModel
-from .permissions import CommentPermission
-from .serializers import CommentSerializer
-
 
 class CommentCursorPagination(CursorPagination):
-    page_size = 10
+    page_size = PAGE_SIZE
     page_size_query_param = "page_size"
     max_page_size = 100
-    ordering = "-created_at"
+    ordering = "created_at"
 
 
 class CommentViewSet(viewsets.ModelViewSet):
@@ -107,24 +107,14 @@ class CommentViewSet(viewsets.ModelViewSet):
         user = self.request.user
 
         if instance.jira_id:
-            try:
-                success = JiraProjectService.delete_jira_comment(
-                    user=user,
-                    ticket_instance=instance.ticket,
-                    jira_comment_id=instance.jira_id,
-                )
-
-                if not success:
-                    raise Exception("Jira API returned a failure status.")
-
-            except Exception as e:
-                clean_error = parse_jira_error(e)
-                return Response(
-                    {"detail": clean_error}, status=status.HTTP_502_BAD_GATEWAY
-                )
+            JiraProjectService.delete_jira_comment(
+                user=user,
+                ticket_instance=instance.ticket,
+                jira_comment_id=instance.jira_id,
+            )
 
         instance.delete()
         return Response(
-            {"detail": "Comment deleted successfully locally and on Jira."},
+            {"detail": CommentMessages.DELETE_SUCCESS},
             status=status.HTTP_204_NO_CONTENT,
         )

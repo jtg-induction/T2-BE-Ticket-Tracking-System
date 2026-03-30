@@ -1,4 +1,4 @@
-from .models import Ticket
+from ticket.models import Ticket
 
 
 def parse_jira_adf(adf_data):

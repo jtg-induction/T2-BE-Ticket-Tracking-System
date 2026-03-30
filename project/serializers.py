@@ -1,19 +1,18 @@
 import re
 from urllib.parse import urlparse
 
-from django.conf import settings
 from django.db import transaction
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import serializers
 
-from core.services import JiraProjectService
-from core.utils import parse_jira_error
-from project.models import ProjectMember
+from core.services.jira import JiraProjectService
+from project.constants import ProjectMessages
+from project.enums import MemberStatus, ProjectRole
+from project.models import ProjectInvitation, ProjectMember, ProjectModel
+from project.services import ProjectService
 from user.models import CustomUser
-
-from .enums import MemberStatus
-from .models import ProjectInvitation, ProjectModel
-from .tasks import send_invitation_email
+from user.serializers import UserSerializer
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -61,7 +60,7 @@ class ProjectSerializer(serializers.ModelSerializer):
         """
         request = self.context.get("request")
 
-        if request.user.is_staff or obj.owner == request.user:
+        if obj.owner == request.user:
             return True
         return ProjectMember.objects.filter(
             project=obj, user=request.user, is_admin=True, status=MemberStatus.MEMBER
@@ -76,9 +75,7 @@ class ProjectSerializer(serializers.ModelSerializer):
         """
         pattern = r"^[A-Z][A-Z0-9]{1,9}$"
         if not re.match(pattern, value):
-            raise serializers.ValidationError(
-                "Jira Project Key must be uppercase, start with a letter, and must be 2-10 chars in length."
-            )
+            raise serializers.ValidationError(ProjectMessages.KEY_REQUIREMENTS)
         return value
 
     def validate_site_url(self, value):
@@ -91,12 +88,10 @@ class ProjectSerializer(serializers.ModelSerializer):
         host = (parsed.hostname or "").lower()
 
         if parsed.scheme != "https":
-            raise serializers.ValidationError("Site URL must use HTTPS for security.")
+            raise serializers.ValidationError(ProjectMessages.HTTPS_REQUIRED)
 
         if not host.endswith(".atlassian.net"):
-            raise serializers.ValidationError(
-                "Site URL must be a valid Atlassian Cloud domain (e.g., company.atlassian.net)."
-            )
+            raise serializers.ValidationError(ProjectMessages.ATL_DOMAIN_REQUIRED)
 
         return f"https://{host}"
 
@@ -107,18 +102,14 @@ class ProjectSerializer(serializers.ModelSerializer):
         if self.instance:
             if "site_url" in attrs and attrs["site_url"] != self.instance.site_url:
                 raise serializers.ValidationError(
-                    {
-                        "site_url": "You cannot change the Site URL once a project is linked."
-                    }
+                    {"site_url": ProjectMessages.IMMUTABLE_SITE}
                 )
             if (
                 "jira_project_key" in attrs
                 and attrs["jira_project_key"] != self.instance.jira_project_key
             ):
                 raise serializers.ValidationError(
-                    {
-                        "jira_project_key": "You cannot change the Project Key after creation."
-                    }
+                    {"jira_project_key": ProjectMessages.IMMUTABLE_KEY}
                 )
 
         else:
@@ -127,9 +118,7 @@ class ProjectSerializer(serializers.ModelSerializer):
             if ProjectModel.all_objects.filter(
                 jira_project_key=key, site_url=url
             ).exists():
-                raise serializers.ValidationError(
-                    "This project key already exists for this site URL."
-                )
+                raise serializers.ValidationError(ProjectMessages.DUPLICATE_PROJECT)
 
         return attrs
 
@@ -139,11 +128,7 @@ class ProjectSerializer(serializers.ModelSerializer):
         """
         user = self.context["request"].user
 
-        try:
-            jira_id = JiraProjectService.create_jira_project(user, validated_data)
-        except Exception as e:
-            clean_error = parse_jira_error(e)
-            raise serializers.ValidationError({"detail": clean_error})
+        jira_id = JiraProjectService.create_jira_project(user, validated_data)
 
         with transaction.atomic():
             validated_data["jira_id"] = jira_id
@@ -157,100 +142,51 @@ class ProjectSerializer(serializers.ModelSerializer):
         user = self.context["request"].user
         validated_data["updated_by"] = user
 
-        try:
-            JiraProjectService.update_jira_project(user, instance, validated_data)
-        except Exception as e:
-            clean_error = parse_jira_error(e)
-            raise serializers.ValidationError({"detial": clean_error})
+        JiraProjectService.update_jira_project(user, instance, validated_data)
 
         return super().update(instance, validated_data)
 
 
 class InviteUserSerializer(serializers.Serializer):
     """
-    Serializer to handle inviting a new user to a project.
-
+    Serializer to handle inviting a new user.
+    Restores the logic to clear expired invitations before re-inviting.
     """
 
-    email = serializers.EmailField()
+    user_id = serializers.UUIDField()
     is_admin = serializers.BooleanField(default=False)
 
     def validate(self, attrs):
-        """
-        Performs multi-layered validation for the invitation request.
-
-        1. Verifies the invitee is a registered system user.
-        2. Ensures the user isn't already a member of the project.
-        3. Checks for existing active (unexpired and unaccepted) invitations
-           to prevent spamming.
-
-        Args:
-            attrs (dict): Data provided by the requester.
-
-        Returns:
-            dict: Validated data with the 'invitee' object injected.
-        """
         project_id = self.context.get("project_id")
-        email = attrs.get("email")
 
         try:
-            invitee = CustomUser.objects.get(email=email)
+            invitee = CustomUser.objects.get(user_id=attrs["user_id"])
             attrs["invitee"] = invitee
         except CustomUser.DoesNotExist:
-            raise serializers.ValidationError(
-                {"email": "User with this email does not exist."}
-            ) from None
+            raise serializers.ValidationError(ProjectMessages.USER_NOT_FOUND)
 
-        if ProjectMember.objects.filter(project_id=project_id, user=invitee).exists():
-            raise serializers.ValidationError(
-                "User is already a member of this project."
-            )
+        if ProjectMember.objects.filter(
+            project_id=project_id, user=invitee, status=MemberStatus.MEMBER
+        ).exists():
+            raise serializers.ValidationError(ProjectMessages.ALREADY_MEMBER)
 
         ProjectInvitation.objects.filter(
-            project_id=project_id,
-            invitee=invitee,
-            is_accepted=False,
-            expires_at__lte=timezone.now(),
+            project_id=project_id, invitee=invitee, expires_at__lte=timezone.now()
         ).delete()
 
         return attrs
 
     def create(self, validated_data):
         """
-        Creates a ProjectInvitation record and dispatches an invitation email.
-
-        Args:
-            validated_data (dict): Data returned from the validation step.
-
-        Returns:
-            ProjectInvitation: The newly created invitation instance.
+        Delegates to service layer for the actual creation and email dispatch.
         """
-        project_id = self.context.get("project_id")
-        inviter = self.context.get("request").user
-        invitee = validated_data["invitee"]
-
-        with transaction.atomic():
-            invitation = ProjectInvitation.objects.create(
-                project_id=project_id,
-                invitee=invitee,
-                invited_by=inviter,
-                is_admin=validated_data["is_admin"],
-            )
-
-            invite_url = f"{settings.CLIENT_URL}/accept-invite/{invitation.token}"
-
-            try:
-                transaction.on_commit(
-                    lambda: send_invitation_email.delay(
-                        invitation.invitee.email, invitation.project.title, invite_url
-                    )
-                )
-            except Exception as err:
-                raise serializers.ValidationError(
-                    {"email": "Unable to send invitation right now. Please retry."}
-                ) from err
-
-        return invitation
+        project = get_object_or_404(ProjectModel, id=self.context.get("project_id"))
+        return ProjectService.create_invitation(
+            project=project,
+            invited_by=self.context.get("request").user,
+            invitee=validated_data["invitee"],
+            is_admin=validated_data["is_admin"],
+        )
 
 
 class ProjectMemberSerializer(serializers.ModelSerializer):
@@ -287,5 +223,16 @@ class ProjectMemberSerializer(serializers.ModelSerializer):
                  otherwise 'member'.
         """
         if obj.project.owner_id == obj.user_id:
-            return "owner"
-        return "admin" if obj.is_admin else "member"
+            return ProjectRole.OWNER
+        return ProjectRole.ADMIN if obj.is_admin else ProjectRole.MEMBER
+
+
+class ProjectUserMembershipSerializer(UserSerializer):
+    """
+    Extends the base UserSerializer to include project membership status.
+    """
+
+    is_project_member = serializers.BooleanField(read_only=True)
+
+    class Meta(UserSerializer.Meta):
+        fields = UserSerializer.Meta.fields + ["is_project_member"]

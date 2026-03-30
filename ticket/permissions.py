@@ -1,62 +1,61 @@
+from django.db.models import Q
 from rest_framework import permissions
 
 from project.enums import MemberStatus
-from project.models import ProjectMember, ProjectModel
+from project.models import ProjectMember
 
 
 class IsProjectAdminOrReadOnly(permissions.BasePermission):
     """
-    Project-level permission policy to manage access based on membership and roles.
-
-    Access Rules:
-    1. **Authentication**: User must be authenticated.
-    2. **Project Context**: If no project ID is provided in the URL, access is granted
-       (falls back to other permissions).
-    3. **Membership**: User must be an active project member or the project owner to
-       access any data.
-    4. **Read Access**: All active members/owners have access to GET, HEAD, and OPTIONS.
-    5. **Write Access (Full)**: Only the project owner or a member with 'Admin'
-       privileges can perform POST, PUT, or DELETE.
-    6. **Write Access (Restricted)**: Regular members can only use PATCH if they are
-       updating the 'status' field exclusively.
+    Handles Project-level and Ticket-level authorization.
     """
 
     def has_permission(self, request, view):
-        """
-        Determines if the request has the necessary project-level authorization.
-
-        Args:
-            request: The current DRF request object.
-            view: The view instance being accessed.
-
-        Returns:
-            bool: True if access is authorized, False otherwise.
-        """
-        project_pk = view.kwargs.get("project_pk")
         user = request.user
-
         if not user.is_authenticated:
             return False
 
+        if view.action == "list_all_tickets":
+            return True
+
+        project_pk = view.kwargs.get("project_pk")
         if not project_pk:
             return True
 
-        membership = ProjectMember.objects.filter(
-            project_id=project_pk, user=user, status=MemberStatus.MEMBER
-        ).first()
+        has_access = ProjectMember.objects.filter(
+            Q(project_id=project_pk, user=user, status=MemberStatus.MEMBER)
+            | Q(project_id=project_pk, project__owner=user)
+        ).exists()
 
-        is_owner = ProjectModel.objects.filter(id=project_pk, owner=user).exists()
+        if request.method == "LIST":
+            return has_access
 
-        if not membership and not is_owner:
-            return False
+        return True
 
-        if request.method in permissions.SAFE_METHODS:
+    def has_object_permission(self, request, view, obj):
+        """
+        Specific CRUD logic for Ticket objects.
+        Runs for: retrieve, update, partial_update, destroy.
+        """
+        user = request.user
+
+        if obj.project.owner == user:
             return True
 
+        membership = ProjectMember.objects.filter(
+            project=obj.project, user=user, status=MemberStatus.MEMBER
+        ).first()
+
+        if membership and membership.is_admin:
+            return True
+
+        if obj.reporter == user or obj.assignee == user:
+            return True
+
+        if request.method in permissions.SAFE_METHODS:
+            return membership is not None
+
         if request.method == "PATCH" and membership:
-            update_fields = set(request.data.keys())
+            return set(request.data.keys()) == {"status"}
 
-            if update_fields == {"status"}:
-                return True
-
-        return is_owner or (membership and membership.is_admin)
+        return False

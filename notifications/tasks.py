@@ -1,6 +1,6 @@
 from celery import shared_task
 
-from .notifications import TicketNotification
+from notifications.notifications import TicketNotification
 
 
 @shared_task

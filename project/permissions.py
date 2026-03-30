@@ -1,17 +1,33 @@
 from rest_framework import permissions
 
-from .models import ProjectMember
+from project.enums import MemberStatus
+from project.models import ProjectMember, ProjectModel
 
 
-class IsProjectMember(permissions.BasePermission):
+class IsProjectAdmin(permissions.BasePermission):
     """
-    Allows access only to users who are members of the specific project.
+    Allows access if the user is the project owner or a member with admin status.
     """
 
-    def has_permission(self, request, view):
-        pid = view.kwargs.get("project_id")
+    def has_object_permission(self, request, view, obj):
+        project = obj if isinstance(obj, ProjectModel) else obj.project
 
-        if not pid:
+        if project.owner == request.user:
             return True
 
-        return ProjectMember.objects.filter(project_id=pid, user=request.user).exists()
+        return ProjectMember.objects.filter(
+            project=project,
+            user=request.user,
+            is_admin=True,
+            status=MemberStatus.MEMBER,
+        ).exists()
+
+
+class IsProjectOwner(permissions.BasePermission):
+    """
+    Strict permission: only the project owner (creator) can perform the action.
+    """
+
+    def has_object_permission(self, request, view, obj):
+        project = obj if isinstance(obj, ProjectModel) else obj.project
+        return project.owner == request.user

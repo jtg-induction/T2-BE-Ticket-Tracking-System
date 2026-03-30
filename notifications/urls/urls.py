@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import TicketViewSet
+from notifications.views import TicketViewSet
 
 urlpatterns = [
     path(
@@ -10,7 +10,7 @@ urlpatterns = [
     ),
     path(
         "tickets/<uuid:ticket_id>/unsubscribe/",
-        TicketViewSet.as_view({"post": "unsubscribe"}),
+        TicketViewSet.as_view({"delete": "unsubscribe"}),
         name="ticket-unsubscribe",
     ),
 ]
