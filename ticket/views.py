@@ -4,12 +4,11 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.filters import OrderingFilter, SearchFilter
-from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
-from core.constants import MAX_PAGE_SIZE, PAGE_SIZE
 from core.renders import StandardizedJSONRenderer
 from core.services.jira import JiraProjectService
+from core.utils import StandardizedPagination
 from notifications.models import Notifications
 from project.enums import MemberStatus
 from project.models import Project, ProjectMember
@@ -19,13 +18,6 @@ from ticket.serializers import JiraImportSerializer, TicketSerializer
 from ticket.utils import map_jira_to_ticket
 
 
-class TicketPagination(PageNumberPagination):
-    page_query_param = "page"
-    page_size_query_param = "page_size"
-    page_size = PAGE_SIZE
-    max_page_size = MAX_PAGE_SIZE
-
-
 class TicketViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing Ticket operations within a project context.
@@ -33,7 +25,7 @@ class TicketViewSet(viewsets.ModelViewSet):
 
     serializer_class = TicketSerializer
     permission_classes = [IsProjectAdminOrReadOnly]
-    pagination_class = TicketPagination
+    pagination_class = StandardizedPagination
 
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
 
@@ -57,7 +49,6 @@ class TicketViewSet(viewsets.ModelViewSet):
         prevent N+1 database hits. Also pre-fetches the current user's
         project membership to facilitate role-based logic in the serializer.
         """
-
         user = self.request.user
         subscribed_subquery = Notifications.objects.filter(
             ticket=OuterRef("pk"), subscriber=user, is_deleted=False
@@ -73,7 +64,7 @@ class TicketViewSet(viewsets.ModelViewSet):
 
         self.user_membership = ProjectMember.objects.filter(
             user=user, project_id=self.kwargs["project_id"], status=MemberStatus.MEMBER
-        )
+        ).first()
 
         return queryset
 

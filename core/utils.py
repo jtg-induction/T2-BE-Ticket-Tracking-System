@@ -6,10 +6,12 @@ import re
 
 from Crypto.Cipher import AES
 from django.conf import settings
+from django.core.paginator import EmptyPage, Paginator
+from rest_framework.exceptions import NotFound
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
-from core.constants import PAGE_SIZE
+from core.constants import MAX_PAGE_SIZE, PAGE_SIZE
 
 
 def get_aes_key():
@@ -72,6 +74,7 @@ def decrypt_token(encrypted_token):
 class StandardizedPagination(PageNumberPagination):
     page_size = PAGE_SIZE
     page_size_query_param = "page_size"
+    max_page_size = MAX_PAGE_SIZE
 
     def get_paginated_response(self, data):
         """
@@ -80,11 +83,44 @@ class StandardizedPagination(PageNumberPagination):
         return Response(
             {
                 "count": self.page.paginator.count,
+                "page": self.page.number,
                 "next": self.get_next_link(),
                 "previous": self.get_previous_link(),
                 "results": data,
             }
         )
+
+    def paginate_queryset(self, queryset, request, view=None):
+        """
+        Paginate a queryset, falling back to the last page if out of range,
+        or the first page if the input is invalid.
+        """
+        self.request = request
+        page_number = request.query_params.get(self.page_query_param, 1)
+
+        try:
+            return super().paginate_queryset(queryset, request, view=view)
+        except (EmptyPage, NotFound):
+            paginator = self.setup_paginator(queryset)
+
+            if paginator.count == 0:
+                self.page = paginator.page(1)
+                return []
+
+            try:
+                p_num = int(page_number)
+                if p_num > paginator.num_pages:
+                    self.page = paginator.page(paginator.num_pages)
+                else:
+                    self.page = paginator.page(1)
+            except (ValueError, TypeError):
+                self.page = paginator.page(1)
+
+            return list(self.page)
+
+    def setup_paginator(self, queryset):
+        page_size = self.get_page_size(self.request)
+        return Paginator(queryset, page_size)
 
 
 class ADFConverter:

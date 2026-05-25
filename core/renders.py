@@ -76,6 +76,7 @@ class StandardizedJSONRenderer(JSONRenderer):
                 "count": data.get("count"),
                 "next": data.get("next"),
                 "previous": data.get("previous"),
+                "page": data.get("page"),
             }
 
         return super().render(standardized_data, accepted_media_type, renderer_context)
